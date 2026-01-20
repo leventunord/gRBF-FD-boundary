@@ -8,11 +8,11 @@ class Manifold:
             xi (list): list of parameters
             x (list)
         """
-        self.m = len(xi_syms) # manifold dimension
+        self.d = len(xi_syms) # manifold dimension
         self.n = len(x_syms) # ambient dimension
 
-        self.xi = sp.Matrix(xi_syms) # m-dim vector
-        self.x = sp.Matrix(x_syms) # n-dim vector
+        self.xi = sp.Matrix(xi_syms) # shape: (d,)
+        self.x = sp.Matrix(x_syms) # shape: (n, )
 
     def compute(self):
         self.J = self.x.jacobian(self.xi)
@@ -25,12 +25,12 @@ class Manifold:
         if not hasattr(self, 'J_func'):
             self.J_func = sp.lambdify(self.xi, self.J, 'numpy')
 
-        J_val = self.J_func(*xi_val) # shape: (n, m)
+        J_val = self.J_func(*xi_val) # shape: (n, d)
 
         Q, _ = np.linalg.qr(J_val, mode='complete')
 
-        tangent_basis = Q[:, :self.m].T # Shape (m, n)
-        normal_basis = Q[:, self.m:].T  # Shape (n-m, n)
+        tangent_basis = Q[:, :self.d].T # Shape (d, n)
+        normal_basis = Q[:, self.d:].T  # Shape (n-d, n)
 
         return tangent_basis, normal_basis
 
@@ -45,9 +45,22 @@ class Manifold:
         scaled_V = sp.sqrt(self.g) * V_contra
         
         divergence_sum = 0
-        for i in range(self.m):
+        for i in range(self.d):
             divergence_sum += sp.diff(scaled_V[i], self.xi[i])
             
         laplacian = (1 / sp.sqrt(self.g)) * divergence_sum
         
         return sp.simplify(laplacian)
+
+    def sample(self, xi_ranges, num_points):
+        self.x_func = sp.lambdify(self.xi, self.x, 'numpy')
+
+        xi_vals = np.zeros((num_points, self.d))
+
+        for i, (t_min, t_max) in enumerate(xi_ranges):
+            xi_vals[:, i] = np.random.uniform(t_min, t_max, size=num_points)
+
+        args = [xi_vals[:, i] for i in range(self.d)]
+        
+        self.xi_vals = xi_vals # shape: (num_points, d)
+        self.points = self.x_func(*args).T.reshape(-1, self.n) # shape: (num_points, n)
