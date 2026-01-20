@@ -21,7 +21,7 @@ class Manifold:
         self.G_inv = sp.simplify(self.G.inv())
         self.g = sp.simplify(self.G.det())
 
-    def get_tangent_basis(self, xi_val):
+    def get_local_basis(self, xi_val):
         if not hasattr(self, 'J_func'):
             self.J_func = sp.lambdify(self.xi, self.J, 'numpy')
 
@@ -41,7 +41,7 @@ class Manifold:
     def get_laplacian(self, u_sym):
         du_dxi = sp.Matrix([sp.diff(u_sym, xii) for xii in self.xi])
         V_contra = self.G_inv @ du_dxi 
-        
+
         scaled_V = sp.sqrt(self.g) * V_contra
         
         divergence_sum = 0
