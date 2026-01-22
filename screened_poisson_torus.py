@@ -24,21 +24,21 @@ manifold.sample([theta_range, phi_range], N)
 
 #-- MANUFACTURED SOLUTION --#
 
-u_expr = sp.sin(theta) * sp.cos(phi + sp.pi/4)
+u_sym = sp.sin(theta) * sp.cos(phi + sp.pi/4)
 
-u_lap_expr = manifold.get_laplacian(u_expr)
-f_expr = u_expr - u_lap_expr
+u_lap_sym = manifold.get_laplacian(u_sym)
+f_sym = u_sym - u_lap_sym
 
 tt = manifold.xi_vals[:, 0]
 pp = manifold.xi_vals[:, 1]
 
-f_func = sp.lambdify((theta, phi), f_expr, 'numpy')
+f_func = sp.lambdify((theta, phi), f_sym, 'numpy')
 f_vals = f_func(tt, pp)
 
-u_func = sp.lambdify((theta, phi), u_expr, 'numpy')
+u_func = sp.lambdify((theta, phi), u_sym, 'numpy')
 u_vals = u_func(tt, pp)
 
-u_lap_func = sp.lambdify((theta, phi), u_lap_expr, 'numpy')
+u_lap_func = sp.lambdify((theta, phi), u_lap_sym, 'numpy')
 u_lap_vals = u_lap_func(tt, pp)
 
 #-- SOLVE PROBLEM --#
@@ -52,10 +52,10 @@ for i in range(N):
 
     weights = get_operator_weights(
         stencil=manifold.points[stencil_ids],
-        tangent_basis=manifold.get_local_basis(manifold.xi_vals[i])[0],
-    )
+        tangent_basis=manifold.get_local_basis(manifold.xi_vals[i])[0]
+    ) # shape: (1, K)
 
-    L[i, stencil_ids] = weights
+    L[i, stencil_ids] = weights[0, :]
 
 lhs = np.eye(N) - L
 rhs = f_vals

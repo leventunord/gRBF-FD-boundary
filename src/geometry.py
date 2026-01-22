@@ -53,7 +53,8 @@ class Manifold:
         return sp.simplify(laplacian)
 
     def sample(self, xi_ranges, num_points):
-        self.x_func = sp.lambdify(self.xi, self.x, 'numpy')
+        x_syms = [self.x[i] for i in range(self.n)]
+        self.x_func = sp.lambdify(self.xi, x_syms, 'numpy')
 
         xi_vals = np.zeros((num_points, self.d))
 
@@ -61,6 +62,8 @@ class Manifold:
             xi_vals[:, i] = np.random.uniform(t_min, t_max, size=num_points)
 
         args = [xi_vals[:, i] for i in range(self.d)]
+        raw_coords = self.x_func(*args)
+        coords_broadcasted = [np.broadcast_to(c, (num_points,)) for c in raw_coords]
         
         self.xi_vals = xi_vals # shape: (num_points, d)
-        self.points = self.x_func(*args).T.reshape(-1, self.n) # shape: (num_points, n)
+        self.points = np.column_stack(coords_broadcasted) # shape: (num_points, n)

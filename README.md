@@ -108,11 +108,15 @@ Here, the row vectors $\Delta_\theta \phi_{x_0}$ and $\Delta_\theta p_{x_0}$ are
 
 1. PHS Laplacian ($\phi(r) = r^{2\kappa+1}$):
 
-   $$[\Delta_\theta \phi_{x_0}]_k = (4\kappa^2 + 2d\kappa + d - 1) \|\theta(x_0) - \theta(x_{0,k})\|^{2\kappa-1}$$
+   $$[\Delta_\theta \phi_{x_0}]_k = (4\kappa^2 + 2d\kappa + d - 1) \|\theta(x_0) - \theta(x_{0,k})\|^{2\kappa-1}$$​
+
+   Gradient:
+
+   $$[\nabla_\theta \phi_{x_0}]_k = (2\kappa + 1)(\theta(x_0) - \theta(x_{0, k}))\norm{\theta(x_0) - \theta(x_{0,k})}^{2\kappa - 1}$$
 
 2. Polynomial Laplacian:
 
-   $$[\Delta_\theta p_{x_0}]_j = \begin{cases} 2 & \text{if } p_{\alpha(j)} \text{ is quadratic (e.g., } \theta_i^2 \text{)} \\ 0 & \text{otherwise} \end{cases}$$
+   $$[\Delta_\theta p_{x_0}]_j = \begin{cases} 2 & \text{if } p_{\alpha(j)} \text{ is quadratic (e.g., } \theta_i^2 \text{)} \\ 0 & \text{otherwise} \end{cases}$$​
 
 ### 4. Final Algebraic System
 
@@ -123,9 +127,44 @@ $$w = (\Delta_\theta \phi_{x_0}) \Phi^{-1} [I - P(P^T \Lambda P)^{-1} P^T \Lambd
 **Implementation Nuances:**
 
 - **Normalization:** Coordinates $\theta$ are scaled by the stencil diameter $D_{K,max}$. This introduces a scaling factor $1/D_{K,max}^2$ to the final weights.
-
 - **Stability:** If $\Phi$ is singular, $\Phi^{-1}$ is replaced by a regularized pseudo-inverse $(\Phi^T \Lambda_K \Phi + \delta^2 I)^{-1} \Phi^T \Lambda_K$.
-
 - **Weighting:** The paper recommends a specific "central spike" weight $\Lambda_{K}$ where $\lambda_{11}=1$and $\lambda_{kk}=1/K$ for neighbors, which stabilizes the Laplacian matrix.
 
-  
+## Assembling
+
+To solve the Poisson equation $ - \Delta_{\mathcal{M}}u = f$ on the manifold with boundary, we discretize the operator to obtain a linear system $\mathbf{A}\mathbf{u} = \mathbf{f}$. Here, $\mathbf{A} =  - \mathbf{L}$, where $\mathbf{L}$ is the discrete Laplace-Beltrami matrix derived via gRBF-FD.
+
+Let $\Omega$ denote the set of all $N$ node indices. We partition these indices into two sets: the interior nodes $\mathcal{I} \subset \Omega$ (size $N_I$) and the boundary nodes $\mathcal{B} \subset \Omega$ (size $N_B$), such that $N_I + N_B = N$.
+
+The global system vectors and matrices are partitioned accordingly:
+
+$$\mathbf{A} = \begin{bmatrix} \mathbf{A}_{\mathcal{II}} & \mathbf{A}_{\mathcal{IB}} \\ \mathbf{A}_{\mathcal{BI}} & \mathbf{A}_{\mathcal{BB}} \end{bmatrix}, \quad \mathbf{u} = \begin{bmatrix} \mathbf{u}_{\mathcal{I}} \\ \mathbf{u}_{\mathcal{B}} \end{bmatrix}, \quad \mathbf{f} = \begin{bmatrix} \mathbf{f}_{\mathcal{I}} \\ \mathbf{f}_{\mathcal{B}} \end{bmatrix}$$
+
+For Robin conditions, the boundary values depend on both the function value and its normal derivative. We impose the condition:
+
+$$u + \frac{\partial u}{\partial \mathbf{n}} = g \quad \text{on } \Gamma$$
+
+We define a discrete boundary operator matrix $\mathbf{B} \in \mathbb{R}^{N_B \times N}$ representing the discretization of $(I + \nabla_{\mathbf{n}})$. This operator is also partitioned relative to the interior and boundary indices:
+
+$$\mathbf{B} = \begin{bmatrix} \mathbf{B}_{\mathcal{BI}} & \mathbf{B}_{\mathcal{BB}} \end{bmatrix}$$
+
+where $\mathbf{B}_{\mathcal{BI}}$ captures the influence of interior nodes on the boundary condition (via the normal derivative stencil), and $\mathbf{B}_{\mathcal{BB}}$​ captures the influence of boundary nodes on themselves.
+
+However, to approximate $\partial u/ \partial \mathbf{n}$, the stencil only contains the evaluated boundary point and interior points, hence $\mathbf{B}_{\mathcal{BB}}$ is always diagonal.
+
+We now have a coupled system consisting of the PDE on the interior and the Robin condition on the boundary:
+
+1. **Interior PDE:** $\mathbf{A}_{\mathcal{II}} \mathbf{u}_{\mathcal{I}} + \mathbf{A}_{\mathcal{IB}} \mathbf{u}_{\mathcal{B}} = \mathbf{f}_{\mathcal{I}}$
+2. **Boundary Condition:** $\mathbf{B}_{\mathcal{BI}} \mathbf{u}_{\mathcal{I}} + \mathbf{B}_{\mathcal{BB}} \mathbf{u}_{\mathcal{B}} = \mathbf{g}_{\mathcal{B}}$
+
+To solve this efficiently, we eliminate $\mathbf{u}_{\mathcal{B}}$. Since $\mathbf{B}_{\mathcal{BB}}$ is diagonal, we solve the equation for $\mathbf{u}_{\mathcal{B}}$:
+
+$$\mathbf{u}_{\mathcal{B}} = \mathbf{B}_{\mathcal{BB}}^{-1} (\mathbf{g}_{\mathcal{B}} - \mathbf{B}_{\mathcal{BI}} \mathbf{u}_{\mathcal{I}})$$
+
+Substituting this into the interior PDE:
+
+$$\mathbf{A}_{\mathcal{II}} \mathbf{u}_{\mathcal{I}} + \mathbf{A}_{\mathcal{IB}} \left[ \mathbf{B}_{\mathcal{BB}}^{-1} (\mathbf{g}_{\mathcal{B}} - \mathbf{B}_{\mathcal{BI}} \mathbf{u}_{\mathcal{I}}) \right] = \mathbf{f}_{\mathcal{I}}$$
+
+Rearranging terms to group $\mathbf{u}_{\mathcal{I}}$, we arrive at the Schur-complement-like reduced system:
+
+$$\underbrace{(\mathbf{A}_{\mathcal{II}} - \mathbf{A}_{\mathcal{IB}} \mathbf{B}_{\mathcal{BB}}^{-1} \mathbf{B}_{\mathcal{BI}})}_{\mathbf{A}'} \mathbf{u}_{\mathcal{I}} = \underbrace{\mathbf{f}_{\mathcal{I}} - \mathbf{A}_{\mathcal{IB}} \mathbf{B}_{\mathcal{BB}}^{-1} \mathbf{g}_{\mathcal{B}}}_{\mathbf{b}'}$$

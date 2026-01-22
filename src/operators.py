@@ -53,15 +53,25 @@ def get_operator_weights(stencil, tangent_basis, kappa=3, l=4, delta=1e-8,  oper
     elif weight_matrix == 'uniform':
         W = np.eye(K)
 
-    if operator == 'lap':
+    r = np.linalg.norm(norm_coords, axis=1) # shape: (K,)
 
+    if operator == 'lap':
         dP = np.zeros((1, m))
         for j, alpha in enumerate(poly_basis):
             if sum(alpha) == 2 and max(alpha) == 2:
                 dP[0, j] = 2.0
         
-        dPhi = (4 * kappa**2 + 2 * d * kappa + d - 1) * np.linalg.norm(norm_coords, axis=1)**(2 * kappa - 1)
-        dPhi = dPhi.reshape(1, -1)
+        dPhi = (4 * kappa**2 + 2 * d * kappa + d - 1) * r**(2 * kappa - 1)
+        dPhi = dPhi.reshape(1, -1) # shape: (1, K)
+    elif operator == 'grad':
+        dP = np.zeros((d, m))
+        for j, alpha in enumerate(poly_basis):
+            if sum(alpha) == 1:
+                dim_idx = np.where(np.array(alpha) == 1)[0][0]
+                dP[dim_idx, j] = 1.0
+
+        coeffs = -(2 * kappa + 1) * r**(2 * kappa - 1)
+        dPhi = (coeffs.reshape(-1, 1) * norm_coords).T # shape: (d, K)
 
     if delta is None:
         Phi_inv = np.linalg.inv(Phi)
@@ -81,5 +91,8 @@ def get_operator_weights(stencil, tangent_basis, kappa=3, l=4, delta=1e-8,  oper
 
     if operator == 'lap':
         weights = (w_rbf + w_poly) / (diameter**2)
+    elif operator == 'grad':
+        weights_local = (w_rbf + w_poly) / diameter # shape: (d, K)
+        weights = tangent_basis.T @ weights_local # shape: (n, K)
 
-    return weights.flatten()
+    return weights
