@@ -1,70 +1,109 @@
 from src import *
 from scipy.spatial import cKDTree
+import argparse
 
-np.random.seed(0)
+def main(args):
+    #-- PARAMETERS --#
 
-#-- GEOMETRY --#
+    N = args.N
+    K = args.K
+    l = args.l
+    kappa = args.kappa
+    delta = args.delta
+    W = args.W
+    
+    np.random.seed(0)
 
-theta, phi = sp.symbols('theta phi', real=True)
-R = 2.0
-r = 1.0
+    #-- GEOMETRY --#
 
-x_sym = (R + r * sp.cos(theta)) * sp.cos(phi)
-y_sym = (R + r * sp.cos(theta)) * sp.sin(phi)
-z_sym = r * sp.sin(theta)
+    theta, phi = sp.symbols('theta phi', real=True)
+    R = 2.0
+    r = 1.0
 
-manifold = Manifold([theta, phi], [x_sym, y_sym, z_sym])
-manifold.compute()
+    x_sym = (R + r * sp.cos(theta)) * sp.cos(phi)
+    y_sym = (R + r * sp.cos(theta)) * sp.sin(phi)
+    z_sym = r * sp.sin(theta)
 
-theta_range = (0, 2*np.pi)
-phi_range = (0, 2*np.pi)
+    manifold = Manifold([theta, phi], [x_sym, y_sym, z_sym])
+    manifold.compute()
 
-N = 6400
-manifold.sample([theta_range, phi_range], N)
+    theta_range = (0, 2*np.pi)
+    phi_range = (0, 2*np.pi)
 
-#-- MANUFACTURED SOLUTION --#
+    manifold.sample([theta_range, phi_range], N)
 
-u_sym = sp.sin(theta) * sp.cos(phi + sp.pi/4)
+    #-- MANUFACTURED SOLUTION --#
 
-u_lap_sym = manifold.get_laplacian(u_sym)
-f_sym = u_sym - u_lap_sym
+    u_sym = sp.sin(theta) * sp.cos(phi + sp.pi/4)
 
-tt = manifold.xi_vals[:, 0]
-pp = manifold.xi_vals[:, 1]
+    u_lap_sym = manifold.get_laplacian(u_sym)
+    f_sym = u_sym - u_lap_sym
 
-f_func = sp.lambdify((theta, phi), f_sym, 'numpy')
-f_vals = f_func(tt, pp)
+    tt = manifold.xi_vals[:, 0]
+    pp = manifold.xi_vals[:, 1]
 
-u_func = sp.lambdify((theta, phi), u_sym, 'numpy')
-u_vals = u_func(tt, pp)
+    f_func = sp.lambdify((theta, phi), f_sym, 'numpy')
+    f_vals = f_func(tt, pp)
 
-u_lap_func = sp.lambdify((theta, phi), u_lap_sym, 'numpy')
-u_lap_vals = u_lap_func(tt, pp)
+    u_func = sp.lambdify((theta, phi), u_sym, 'numpy')
+    u_vals = u_func(tt, pp)
 
-#-- SOLVE PROBLEM --#
+    u_lap_func = sp.lambdify((theta, phi), u_lap_sym, 'numpy')
+    u_lap_vals = u_lap_func(tt, pp)
 
-L = np.zeros((N, N))
-tree = cKDTree(manifold.points)
-K = 50
+    #-- SOLVE PROBLEM --#
 
-for i in range(N):
-    _, stencil_ids = tree.query(manifold.points[i], K)
+    L = np.zeros((N, N))
+    tree = cKDTree(manifold.points)
 
-    weights = get_operator_weights(
-        stencil=manifold.points[stencil_ids],
-        tangent_basis=manifold.get_local_basis(manifold.xi_vals[i])[0]
-    ) # shape: (1, K)
+    for i in range(N):
+        _, stencil_ids = tree.query(manifold.points[i], K)
 
-    L[i, stencil_ids] = weights[0, :]
+        weights = get_operator_weights(
+            stencil=manifold.points[stencil_ids],
+            tangent_basis=manifold.get_local_basis(manifold.xi_vals[i])[0],
+            kappa=kappa,
+            l=l,
+            weight_matrix=W
+        ) # shape: (1, K)
 
-lhs = np.eye(N) - L
-rhs = f_vals
+        L[i, stencil_ids] = weights[0, :]
 
-u_num = np.linalg.solve(lhs, rhs)
+    lhs = np.eye(N) - L
+    rhs = f_vals
 
-#-- VALIDATION --#
+    u_num = np.linalg.solve(lhs, rhs)
 
-forward_error = np.max(np.abs(L @ u_vals - u_lap_vals))
-inverse_error = np.max(np.abs(u_num - u_vals))
+    #-- VALIDATION --#
+    fe_pointwise = np.abs(L @ u_vals - u_lap_vals)
+    ie_pointwise = np.abs(u_num - u_vals)
 
-print(f'FE: {forward_error:.3e} IE: {inverse_error:.3e}')
+    fe = np.max(fe_pointwise)
+    ie = np.max(ie_pointwise)
+
+    print(f'FE: {fe:.3e} IE: {ie:.3e}')
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '-N', type=int, default=1600
+    )
+    parser.add_argument(
+        '-K', type=int, default=50
+    )
+    parser.add_argument(
+        '-l', type=int, default=4
+    )
+    parser.add_argument(
+        '-kappa', type=int, default=3
+    )
+    parser.add_argument(
+        '-delta', type=float, default=1e-8
+    )
+    parser.add_argument(
+        '-W', type=str, default='1/K'
+    )
+
+    args = parser.parse_args()
+    main(args)
