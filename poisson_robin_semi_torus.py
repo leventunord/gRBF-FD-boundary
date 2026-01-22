@@ -1,6 +1,8 @@
 from src import *
 from scipy.spatial import cKDTree
 import argparse
+import pickle
+import datetime
 
 def main(args):
     #-- PARAMETERS --#
@@ -14,7 +16,7 @@ def main(args):
     W_grad = args.W_grad
     l_grad = args.l_grad
 
-    np.random.seed(0)
+    # np.random.seed(0)
 
     #-- GEOMETRY --#
 
@@ -51,10 +53,10 @@ def main(args):
     boundary_right = Manifold([theta], [x_sym_right, y_sym_right, z_sym])
     boundary_right.sample([theta_range], num_boundary // 2)
 
-    manifold.xi_vals = np.vstack([
-        manifold.xi_vals,
-        np.insert(boundary_left.xi_vals, 1, values=0.0, axis=1),
-        np.insert(boundary_right.xi_vals, 1, values=np.pi, axis=1)
+    manifold.params = np.vstack([
+        manifold.params,
+        np.insert(boundary_left.params, 1, values=0.0, axis=1),
+        np.insert(boundary_right.params, 1, values=np.pi, axis=1)
     ])
 
     manifold.points = np.vstack([
@@ -74,8 +76,8 @@ def main(args):
     u_grad_sym = manifold.get_gradient(u_sym)
     f_sym = -u_lap_sym
 
-    tt = manifold.xi_vals[:, 0]
-    pp = manifold.xi_vals[:, 1]
+    tt = manifold.params[:, 0]
+    pp = manifold.params[:, 1]
 
     f_func = sp.lambdify((theta, phi), f_sym, 'numpy')
     f_vals = f_func(tt, pp)
@@ -109,7 +111,7 @@ def main(args):
 
         weights_lap = get_operator_weights(
             stencil=manifold.points[stencil_ids],
-            tangent_basis=manifold.get_local_basis(manifold.xi_vals[i])[0],
+            tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
             operator='lap',
             kappa=kappa,
             l=l,
@@ -130,7 +132,7 @@ def main(args):
 
         weights_grad = get_operator_weights(
             stencil=stencil_points,
-            tangent_basis=manifold.get_local_basis(manifold.xi_vals[b_id])[0],
+            tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0],
             operator='grad',
             kappa=kappa,
             l=l_grad,
@@ -176,6 +178,22 @@ def main(args):
 
     print(f'FE: {fe:.3e} IE: {ie:.3e}')
 
+    if args.save:
+        data = {
+            'params': manifold.params,
+            'points': manifold.points,
+            'u_num': u_num,
+            'fe': fe_pointwise,
+            'ie': ie_pointwise
+        }
+
+        now = datetime.datetime.now()
+        formatted_time = now.strftime('%m%d_%H%M%S')
+
+        filename = f"N{N}_l{l}_l_grad{l_grad}_{formatted_time}"
+        with open(f'./results/poisson_robin_semi_torus/{filename}.pkl', 'wb') as f:
+            pickle.dump(data, f)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -189,19 +207,22 @@ if __name__ == '__main__':
         '-l', type=int, default=4
     )
     parser.add_argument(
-        '-kappa', type=int, default=3
+        '--kappa', type=int, default=3
     )
     parser.add_argument(
-        '-delta', type=float, default=1e-8
+        '--delta', type=float, default=1e-8
     )
     parser.add_argument(
         '-W', type=str, default='1/K'
     )
     parser.add_argument(
-        '-l_grad', type=int, default=3
+        '--l_grad', type=int, default=3
     )
     parser.add_argument(
-        '-W_grad', type=str, default='1/K'
+        '--W_grad', type=str, default='1/K'
+    )
+    parser.add_argument(
+        '--save', type=bool, default=False
     )
 
     args = parser.parse_args()
