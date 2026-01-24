@@ -16,7 +16,8 @@ def main(args):
     W_grad = args.W_grad
     l_grad = args.l_grad
 
-    # np.random.seed(0)
+    if args.seed is not None:
+        np.random.seed(args.seed)
 
     #-- GEOMETRY --#
 
@@ -115,6 +116,7 @@ def main(args):
             operator='lap',
             kappa=kappa,
             l=l,
+            delta=delta,
             weight_matrix=W
         ) # shape: (1, K)
 
@@ -136,6 +138,7 @@ def main(args):
             operator='grad',
             kappa=kappa,
             l=l_grad,
+            delta=delta,
             weight_matrix=W
         ) # shape: (n, K)
 
@@ -222,7 +225,11 @@ if __name__ == '__main__':
         '--W_grad', type=str, default='1/K'
     )
     parser.add_argument(
-        '--save', type=bool, default=False
+        '--save', 
+        action='store_true'
+    )
+    parser.add_argument(
+        '--seed', type=int, default=None
     )
 
     args = parser.parse_args()
