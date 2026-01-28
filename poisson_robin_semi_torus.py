@@ -214,11 +214,16 @@ def main(args):
     fe_pointwise = np.abs(L @ u_vals - u_lap_vals[id_interior]) # shape: (num_interior,)
     ie_pointwise = np.abs(u_num - u_vals) # shape: (N,)
 
+    # du/dn FE
+    fe_boundary_pointwise = np.abs(D_n @ u_vals - np.sum(n_vecs * u_grad_vals_boundary, axis=1))
+
     if args.l2:
         fe = np.sqrt(np.sum(fe_pointwise ** 2) / num_interior)
+        fe_boundary = np.sqrt(np.sum(fe_boundary_pointwise ** 2) / num_boundary)
         ie = np.sqrt(np.sum(ie_pointwise ** 2) / N)
     else:
         fe = np.max(fe_pointwise)
+        fe_boundary = np.max(fe_boundary_pointwise)
         ie = np.max(ie_pointwise)
     # st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
 
@@ -231,7 +236,8 @@ def main(args):
             'points': manifold.points,
             'u_num': u_num,
             'fe': fe_pointwise,
-            'ie': ie_pointwise
+            'ie': ie_pointwise,
+            'fe_bd': fe_boundary_pointwise
         }
 
         now = datetime.datetime.now()
@@ -257,7 +263,7 @@ if __name__ == '__main__':
         '--kappa', type=int, default=3
     )
     parser.add_argument(
-        '--delta', type=float, default=1e-8
+        '--delta', type=float, default=1e-5
     )
     parser.add_argument(
         '-W', type=str, default='1/K'

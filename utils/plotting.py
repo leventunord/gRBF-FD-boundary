@@ -15,7 +15,7 @@ def plot_convergence(N_vals, err_stat_list, filename='temp', ref_anchor=None):
 
     # convergence ref
     if ref_anchor is  None:
-        ref_anchor = (1600, 1e-3)
+        ref_anchor = (1600, 1e-2)
 
     N0, E0 = ref_anchor
 
@@ -42,7 +42,7 @@ def plot_convergence(N_vals, err_stat_list, filename='temp', ref_anchor=None):
 
     ax.legend()
 
-    plt.title(r"($L_2$)IE (fixed) K=50 with QP")
+    plt.title(r"$\partial u/\partial n$ FE (fixed) K=50 with QP")
 
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()

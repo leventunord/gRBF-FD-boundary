@@ -65,11 +65,11 @@ def main(args):
         
         for n in unique_Ns:
             mask = (data['N'] == n) & (data['l_grad'] == l)
-            ie_vals = data['IE'][mask]
+            err_vals = data['FE'][mask]
             
-            if ie_vals.size > 0:
-                mean_list.append(np.mean(ie_vals))
-                std_list.append(np.std(ie_vals, ddof=1) if ie_vals.size > 1 else 0.0)
+            if err_vals.size > 0:
+                mean_list.append(np.mean(err_vals))
+                std_list.append(np.std(err_vals, ddof=1) if err_vals.size > 1 else 0.0)
             else:
                 mean_list.append(np.nan)
                 std_list.append(np.nan)
