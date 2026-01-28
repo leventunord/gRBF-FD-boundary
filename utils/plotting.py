@@ -29,7 +29,7 @@ def plot_convergence(N_vals, err_stat_list, filename='temp', ref_anchor=None):
     ax.annotate(
         r'$O(N^{-2})$', 
         xy=ref_anchor,
-        xytext=(50, -40),
+        xytext=(50, -10),
         textcoords='offset points',
         ha='center',
         va='bottom',
@@ -41,6 +41,8 @@ def plot_convergence(N_vals, err_stat_list, filename='temp', ref_anchor=None):
     ax.minorticks_off()
 
     ax.legend()
+
+    plt.title(r"($L_2$)IE (fixed) K=50 with QP")
 
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()
@@ -68,7 +70,7 @@ def plot_error_distribution(params, error_vals, filename='temp'):
     ax.annotate(
         max_err_text, 
         xy=(params[max_id][0], params[max_id][1]),
-        xytext=(0, 10),
+        xytext=(0, -20),
         textcoords='offset points',
         ha='center',
         va='bottom',
@@ -94,6 +96,8 @@ def plot_error_distribution(params, error_vals, filename='temp'):
     ax.set_aspect('equal')
 
     ax.minorticks_off()
+
+    plt.title(r"IE (fixed) K=50 N=6400 with QP")
 
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()

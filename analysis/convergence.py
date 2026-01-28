@@ -11,7 +11,15 @@ def main(args):
     if args.csv is None:
         N_vals = [1600, 3200, 6400, 12800, 25600]
         l_vals = [2, 3, 4, 5]
-        trials = 2
+        trials = 4
+
+        seed_sequence = [
+            [13807, 66053, 74963, 15185],
+            [10585, 48781, 49297, 92519],
+            [5562, 57001, 22775, 29774],
+            [47005, 80904, 25119, 70938],
+            [35097, 27317, 53352, 82327]
+        ]
 
         now = datetime.datetime.now()
         formatted_time = now.strftime('%m%d_%H%M%S')
@@ -20,12 +28,13 @@ def main(args):
         with open(csv_file, "w") as f:
             f.write("N,l_grad,trial,seed,FE,IE\n")
             
-            for N in N_vals:
+            for i, N in enumerate(N_vals):
+                seed_list = seed_sequence[i]
                 for t in range(trials):
-                    current_seed = random.randint(1, 100000)
+                    current_seed = seed_list[t]
                     
                     for l in l_vals:
-                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed}"
+                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed} --delta 1e-5 --l2 --qp --save"
                         output = subprocess.getoutput(cmd)
                         
                         fe = re.search(r"FE:\s+([0-9\.eE\-\+]+)", output).group(1)
@@ -68,7 +77,7 @@ def main(args):
         stat = {
             'mean': np.array(mean_list),
             'std': np.array(std_list),
-            'plot_kwargs': {'label': f'boundary_l = {l}'}
+            'plot_kwargs': {'label': f'deg = {l}'}
         }
         err_stat_list.append(stat)
 

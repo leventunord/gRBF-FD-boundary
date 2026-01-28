@@ -75,7 +75,10 @@ def main(args):
 
     u_lap_sym = manifold.get_laplacian(u_sym)
     u_grad_sym = manifold.get_gradient(u_sym)
-    f_sym = -u_lap_sym
+    if args.screened:
+        f_sym = u_sym - u_lap_sym
+    else:
+        f_sym = -u_lap_sym
 
     tt = manifold.params[:, 0]
     pp = manifold.params[:, 1]
@@ -107,6 +110,7 @@ def main(args):
     L = np.zeros((num_interior, N))
     tree_full = cKDTree(manifold.points)
 
+    bad_count = 0
     for i, i_id in enumerate(id_interior):
         _, stencil_ids = tree_full.query(manifold.points[i_id], K)
 
@@ -120,7 +124,38 @@ def main(args):
             weight_matrix=W
         ) # shape: (1, K)
 
+        # detecting bad weights
+        w_center = weights_lap[0, 0]
+        w_neighbors = weights_lap[0, 1:]
+        
+        is_positive = w_center > 0.0
+        
+        # ratio = |w_center| / max(|w_neighbors|)
+        ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+        
+        is_unstable = ratio < 1.0
+
+        if is_positive or is_unstable:
+            bad_count += 1
+            # TODO: QP fix
+            if args.qp:
+                weights_lap = get_operator_weights(
+                    stencil=manifold.points[stencil_ids],
+                    tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                    operator='lap',
+                    kappa=kappa,
+                    l=l,
+                    delta=delta,
+                    weight_matrix=W,
+                    qp=True
+                )
+
+                if weights_lap[0, 0] > 0.0:
+                    print("positive")
+
         L[i, stencil_ids] = weights_lap[0, :]
+
+    print(f"bad count = {bad_count}")
 
     D_n = np.zeros((num_boundary, N))
     tree_interior = cKDTree(manifold.points[id_interior])
@@ -148,7 +183,10 @@ def main(args):
         D_n[i, stencil_ids] = weights_grad_n
 
     #-- SYSTEM PARTITION --#
-    A = -L
+    if args.screened:
+        A = np.eye(N)[:num_interior, :] - L
+    else:
+        A = -L
     A_II = A[:, id_interior]
     A_IB = A[:, id_boundary]
 
@@ -176,10 +214,16 @@ def main(args):
     fe_pointwise = np.abs(L @ u_vals - u_lap_vals[id_interior]) # shape: (num_interior,)
     ie_pointwise = np.abs(u_num - u_vals) # shape: (N,)
 
-    fe = np.max(fe_pointwise)
-    ie = np.max(ie_pointwise)
+    if args.l2:
+        fe = np.sqrt(np.sum(fe_pointwise ** 2) / num_interior)
+        ie = np.sqrt(np.sum(ie_pointwise ** 2) / N)
+    else:
+        fe = np.max(fe_pointwise)
+        ie = np.max(ie_pointwise)
+    # st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
 
     print(f'FE: {fe:.3e} IE: {ie:.3e}')
+    # print(f'ST: {st:.3e}')
 
     if args.save:
         data = {
@@ -193,7 +237,7 @@ def main(args):
         now = datetime.datetime.now()
         formatted_time = now.strftime('%m%d_%H%M%S')
 
-        filename = f"N{N}_l{l}_l_grad{l_grad}_{formatted_time}"
+        filename = f"N{N}_l_grad{l_grad}reg_{args.delta}_qp_l2_seed{args.seed}"
         with open(f'./results/poisson_robin_semi_torus/{filename}.pkl', 'wb') as f:
             pickle.dump(data, f)
 
@@ -226,6 +270,18 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--save', 
+        action='store_true'
+    )
+    parser.add_argument(
+        '--qp', 
+        action='store_true'
+    )
+    parser.add_argument(
+        '--l2', 
+        action='store_true'
+    )
+    parser.add_argument(
+        '--screened', 
         action='store_true'
     )
     parser.add_argument(
