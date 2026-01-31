@@ -33,31 +33,36 @@ def main(args):
     manifold.compute()
 
     theta_range = (0, 2*np.pi)
-    phi_range = (0, np.pi)
+    phi_range = (np.pi / 9,  8 * np.pi / 9)
+    # phi_range = (0, np.pi)
 
-    num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
+    phi_min = phi_range[0]
+    phi_max = phi_range[1]
+
+    num_boundary = 2 * int(np.round(np.sqrt(2*r*9/(R*7))*np.sqrt(N))) # TODO: adaptive code
+    # num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
     num_interior = N - num_boundary
 
     manifold.sample([theta_range, phi_range], num_interior)
 
     # sample boundary
 
-    x_sym_left = (R + r * sp.cos(theta)) * sp.cos(0)
-    y_sym_left = (R + r * sp.cos(theta)) * sp.sin(0)
+    x_sym_left = (R + r * sp.cos(theta)) * sp.cos(phi_min)
+    y_sym_left = (R + r * sp.cos(theta)) * sp.sin(phi_min)
 
     boundary_left = Manifold([theta], [x_sym_left, y_sym_left, z_sym])
     boundary_left.sample([theta_range], num_boundary // 2)
 
-    x_sym_right = (R + r * sp.cos(theta)) * sp.cos(sp.pi)
-    y_sym_right = (R + r * sp.cos(theta)) * sp.sin(sp.pi)
+    x_sym_right = (R + r * sp.cos(theta)) * sp.cos(phi_max)
+    y_sym_right = (R + r * sp.cos(theta)) * sp.sin(phi_max)
 
     boundary_right = Manifold([theta], [x_sym_right, y_sym_right, z_sym])
     boundary_right.sample([theta_range], num_boundary // 2)
 
     manifold.params = np.vstack([
         manifold.params,
-        np.insert(boundary_left.params, 1, values=0.0, axis=1),
-        np.insert(boundary_right.params, 1, values=np.pi, axis=1)
+        np.insert(boundary_left.params, 1, values=phi_min, axis=1),
+        np.insert(boundary_right.params, 1, values=phi_max, axis=1)
     ])
 
     manifold.points = np.vstack([
@@ -100,8 +105,15 @@ def main(args):
     # outward normal at each boundary point
     n_vecs = np.zeros((num_boundary, manifold.n)) # shape: (num_boundary, n)
 
+    n_vec_left =  - manifold.get_local_basis([0, np.pi/9])[0][1]
+    n_vec_right = manifold.get_local_basis([0, 8 * np.pi/9])[0][1]
+
     for i in range(num_boundary):
-        n_vecs[i, :] = [0.0, -1.0, 0.0]
+        # n_vecs[i, :] = [0.0, -1.0, 0.0]
+        if i < num_boundary // 2:
+            n_vecs[i, :] = n_vec_left
+        else:
+            n_vecs[i, :] = n_vec_right
 
     g_vals = u_vals[id_boundary] + np.sum(n_vecs * u_grad_vals_boundary, axis=1) # shape: (num_boundary)
 
@@ -112,17 +124,71 @@ def main(args):
 
     bad_count = 0
     for i, i_id in enumerate(id_interior):
-        _, stencil_ids = tree_full.query(manifold.points[i_id], K)
+        if args.auto_K:
+            current_K = K
+            current_delta = delta
+            
+            delta_retries = 0
+            k_retries = 0
+            
+            MAX_DELTA_RETRIES = 3 
+            MAX_K_RETRIES = 15
+            
+            while True:
+                _, stencil_ids = tree_full.query(manifold.points[i_id], current_K)
 
-        weights_lap = get_operator_weights(
-            stencil=manifold.points[stencil_ids],
-            tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
-            operator='lap',
-            kappa=kappa,
-            l=l,
-            delta=delta,
-            weight_matrix=W
-        ) # shape: (1, K)
+                weights_lap = get_operator_weights(
+                    stencil=manifold.points[stencil_ids],
+                    tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                    operator='lap',
+                    kappa=kappa,
+                    l=l,
+                    delta=current_delta,
+                    weight_matrix=W
+                ) # shape: (1, K)
+
+                # detecting bad weights
+                w_center = weights_lap[0, 0]
+                w_neighbors = weights_lap[0, 1:]
+                
+                is_positive = w_center > 0.0
+                
+                # ratio = |w_center| / max(|w_neighbors|)
+                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+                
+                is_unstable = ratio < 3.0
+
+                if not is_positive and not is_unstable:
+                    break
+
+                # FAILURE HANDLING
+                if delta_retries < MAX_DELTA_RETRIES:
+                    # Strategy 1: Increase regularization (Delta)
+                    current_delta *= 2.0
+                    delta_retries += 1
+                elif k_retries < MAX_K_RETRIES:
+                    # Strategy 2: Increase Neighbors (K)
+                    current_K += 2
+                    k_retries += 1
+                    # Reset delta logic for new K? (Optional, MATLAB keeps delta increased)
+                    # current_delta = delta 
+                else:
+                    # GIVE UP: Accept result (State 2 or 3) and let QP fix it later
+                    # Mark as bad for your bad_count statistic
+                    break
+        else:
+            current_K = K
+            _, stencil_ids = tree_full.query(manifold.points[i_id], current_K)
+
+            weights_lap = get_operator_weights(
+                stencil=manifold.points[stencil_ids],
+                tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                operator='lap',
+                kappa=kappa,
+                l=l,
+                delta=delta,
+                weight_matrix=W
+            ) # shape: (1, K)
 
         # detecting bad weights
         w_center = weights_lap[0, 0]
@@ -137,21 +203,37 @@ def main(args):
 
         if is_positive or is_unstable:
             bad_count += 1
-            # TODO: QP fix
-            if args.qp:
-                weights_lap = get_operator_weights(
-                    stencil=manifold.points[stencil_ids],
-                    tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
-                    operator='lap',
-                    kappa=kappa,
-                    l=l,
-                    delta=delta,
-                    weight_matrix=W,
-                    qp=True
-                )
 
-                if weights_lap[0, 0] > 0.0:
-                    print("positive")
+            if args.qp:
+                qp_k_retries = 0
+                MAX_QP_K_RETRIES = 15
+                current_K = current_K
+
+                while True:
+                    _, stencil_ids = tree_full.query(manifold.points[i_id], current_K)
+
+                    weights_lap = get_operator_weights(
+                        stencil=manifold.points[stencil_ids],
+                        tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                        operator='lap',
+                        kappa=kappa,
+                        l=l,
+                        delta=delta,
+                        weight_matrix=W,
+                        qp=True
+                    )
+
+                    w_center = weights_lap[0, 0]
+                    is_positive = w_center > 0.0
+
+                    if not is_positive:
+                        break
+
+                    if qp_k_retries < MAX_QP_K_RETRIES:
+                        current_K += 2
+                        qp_k_retries += 1
+                    else:
+                        break
 
         L[i, stencil_ids] = weights_lap[0, :]
 
@@ -161,26 +243,84 @@ def main(args):
     tree_interior = cKDTree(manifold.points[id_interior])
 
     for i, b_id in enumerate(id_boundary):
-        _, stencil_ids = tree_interior.query(manifold.points[b_id], K-1)
+        # --- START MODIFICATION: Auto-K for Boundary Operator (Dn) ---
+        if args.auto_K:
+            current_K = K
+            current_delta = delta
+            
+            delta_retries = 0
+            k_retries = 0
+            
+            MAX_DELTA_RETRIES = 3
+            MAX_K_RETRIES = 15
+            
+            # MATLAB Logic: Boundary points usually need positive center weight for du/dn
+            while True:
+                _, stencil_ids = tree_interior.query(manifold.points[b_id], current_K-1)
 
-        # append boundary point
-        stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
-        stencil_ids = np.append(b_id, stencil_ids)
+                # append boundary point
+                stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
+                stencil_ids = np.append(b_id, stencil_ids)
 
-        weights_grad = get_operator_weights(
-            stencil=stencil_points,
-            tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0],
-            operator='grad',
-            kappa=kappa,
-            l=l_grad,
-            delta=delta,
-            weight_matrix=W
-        ) # shape: (n, K)
+                weights_grad = get_operator_weights(
+                    stencil=stencil_points,
+                    tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0], # params use global index
+                    operator='grad',
+                    kappa=kappa,
+                    l=l_grad,
+                    delta=current_delta,
+                    weight_matrix=W
+                ) # shape: (n, K)
 
-        n_vec = n_vecs[i]
-        weights_grad_n = n_vec @ weights_grad
+                n_vec = n_vecs[i]
+                weights_grad_n = n_vec @ weights_grad # shape: (K,)
 
-        D_n[i, stencil_ids] = weights_grad_n
+                w_center = weights_grad_n[0]
+                w_neighbors = weights_grad_n[1:]
+                
+                is_positive = w_center > 0.0
+
+                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+                
+                is_stable = ratio > 3.0 # 3.0 or 1.8
+
+                if is_positive and is_stable:
+                    break
+                
+                # 3. Retry Logic
+                if delta_retries < MAX_DELTA_RETRIES:
+                    current_delta *= 2.0
+                    delta_retries += 1
+                elif k_retries < MAX_K_RETRIES:
+                    current_K += 2
+                    k_retries += 1
+                else:
+                    break
+            
+            # Apply weights
+            D_n[i, stencil_ids] = weights_grad_n
+            
+        else:
+            _, stencil_ids = tree_interior.query(manifold.points[b_id], K-1)
+
+            # append boundary point
+            stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
+            stencil_ids = np.append(b_id, stencil_ids)
+
+            weights_grad = get_operator_weights(
+                stencil=stencil_points,
+                tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0],
+                operator='grad',
+                kappa=kappa,
+                l=l_grad,
+                delta=delta,
+                weight_matrix=W
+            ) # shape: (n, K)
+
+            n_vec = n_vecs[i]
+            weights_grad_n = n_vec @ weights_grad
+
+            D_n[i, stencil_ids] = weights_grad_n
 
     #-- SYSTEM PARTITION --#
     if args.screened:
@@ -280,6 +420,10 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--qp', 
+        action='store_true'
+    )
+    parser.add_argument(
+        '--auto_K', 
         action='store_true'
     )
     parser.add_argument(

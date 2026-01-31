@@ -58,15 +58,16 @@ def get_operator_weights(stencil, tangent_basis, kappa=3, l=4, delta=1e-8, qp=Fa
 
         H_diag = np.ones(K + 1)
         H_diag[0] = 1.0 / (K**2) # center point weight
-        H_diag[-1] = (100 * K)**2 # slack variable 
+        # H_diag[-1] = (100 * K)**2 # slack variable 
+        H_diag[-1] = K**2 # slack variable 
 
         # QP matrices
         H = matrix(np.diag(H_diag))
         q = matrix(np.zeros(K + 1))
 
         # constrains
-        G_np = np.zeros((K + 2, K + 1))
-        h_np = np.zeros(K + 2)
+        G_np = np.zeros((K + 1, K + 1))
+        h_np = np.zeros(K + 1)
         
         row_idx = 0
 
@@ -80,9 +81,9 @@ def get_operator_weights(stencil, tangent_basis, kappa=3, l=4, delta=1e-8, qp=Fa
             G_np[row_idx, -1] = -1.0
             row_idx += 1
             
-        # Slack variable sign: -C <= 0
-        G_np[row_idx, -1] = -1.0
-        row_idx += 1
+        # # Slack variable sign: -C <= 0
+        # G_np[row_idx, -1] = -1.0
+        # row_idx += 1
 
         # Slack variable upper bound
         G_np[row_idx, -1] = 1.0

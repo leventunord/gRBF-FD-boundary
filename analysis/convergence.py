@@ -11,7 +11,7 @@ def main(args):
     if args.csv is None:
         N_vals = [1600, 3200, 6400, 12800, 25600]
         l_vals = [2, 3, 4, 5]
-        trials = 4
+        trials = 2
 
         seed_sequence = [
             [13807, 66053, 74963, 15185],
@@ -34,7 +34,7 @@ def main(args):
                     current_seed = seed_list[t]
                     
                     for l in l_vals:
-                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed} --delta 1e-5 --l2 --qp --save"
+                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --auto_K -K 20 --seed {current_seed} --l2 --qp"
                         output = subprocess.getoutput(cmd)
                         
                         fe = re.search(r"FE:\s+([0-9\.eE\-\+]+)", output).group(1)
@@ -65,7 +65,7 @@ def main(args):
         
         for n in unique_Ns:
             mask = (data['N'] == n) & (data['l_grad'] == l)
-            err_vals = data['FE'][mask]
+            err_vals = data['IE'][mask]
             
             if err_vals.size > 0:
                 mean_list.append(np.mean(err_vals))
