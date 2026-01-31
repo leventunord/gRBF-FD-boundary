@@ -34,30 +34,35 @@ def main(args):
 
     theta_range = (0, 2*np.pi)
     phi_range = (0, np.pi)
+    # phi_range = (np.pi / 9, 8 * np.pi / 9)
+
+    phi_min = phi_range[0]
+    phi_max = phi_range[1]
 
     num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
+    # num_boundary = 2 * int(np.round(np.sqrt(2*r*9/(R*7))*np.sqrt(N))) # TODO: adaptive code
     num_interior = N - num_boundary
 
     manifold.sample([theta_range, phi_range], num_interior)
 
     # sample boundary
 
-    x_sym_left = (R + r * sp.cos(theta)) * sp.cos(0)
-    y_sym_left = (R + r * sp.cos(theta)) * sp.sin(0)
+    x_sym_left = (R + r * sp.cos(theta)) * sp.cos(phi_min)
+    y_sym_left = (R + r * sp.cos(theta)) * sp.sin(phi_min)
 
     boundary_left = Manifold([theta], [x_sym_left, y_sym_left, z_sym])
     boundary_left.sample([theta_range], num_boundary // 2)
 
-    x_sym_right = (R + r * sp.cos(theta)) * sp.cos(sp.pi)
-    y_sym_right = (R + r * sp.cos(theta)) * sp.sin(sp.pi)
+    x_sym_right = (R + r * sp.cos(theta)) * sp.cos(phi_max)
+    y_sym_right = (R + r * sp.cos(theta)) * sp.sin(phi_max)
 
     boundary_right = Manifold([theta], [x_sym_right, y_sym_right, z_sym])
     boundary_right.sample([theta_range], num_boundary // 2)
 
     manifold.params = np.vstack([
         manifold.params,
-        np.insert(boundary_left.params, 1, values=0.0, axis=1),
-        np.insert(boundary_right.params, 1, values=np.pi, axis=1)
+        np.insert(boundary_left.params, 1, values=phi_min, axis=1),
+        np.insert(boundary_right.params, 1, values=phi_max, axis=1)
     ])
 
     manifold.points = np.vstack([
@@ -100,8 +105,16 @@ def main(args):
     # outward normal at each boundary point
     n_vecs = np.zeros((num_boundary, manifold.n)) # shape: (num_boundary, n)
 
+    # n_vec_left =  - manifold.get_local_basis([0, np.pi/9])[0][1]
+    # n_vec_right = manifold.get_local_basis([0, 8 * np.pi/9])[0][1]
+
     for i in range(num_boundary):
+        # TODO: do not hardcode
         n_vecs[i, :] = [0.0, -1.0, 0.0]
+        # if i < num_boundary // 2:
+        #     n_vecs[i, :] = n_vec_left
+        # else:
+        #     n_vecs[i, :] = n_vec_right
 
     g_vals = u_vals[id_boundary] + np.sum(n_vecs * u_grad_vals_boundary, axis=1) # shape: (num_boundary)
 
