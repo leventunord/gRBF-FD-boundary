@@ -190,21 +190,36 @@ def main(args):
 
         if is_positive or is_unstable:
             bad_count += 1
-            # TODO: QP fix
             if args.qp:
-                weights_lap = get_operator_weights(
-                    stencil=manifold.points[stencil_ids],
-                    tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
-                    operator='lap',
-                    kappa=kappa,
-                    l=l,
-                    delta=delta,
-                    weight_matrix=W,
-                    qp=True
-                )
+                K_current = len(stencil_ids)
+                max_K_retries = 15
 
-                if weights_lap[0, 0] > 0.0:
-                    print("positive")
+                K_retries = 0
+
+                while True:
+                    _, stencil_ids = tree_full.query(manifold.points[i_id], K_current)
+
+                    weights_lap = get_operator_weights(
+                        stencil=manifold.points[stencil_ids],
+                        tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                        operator='lap',
+                        kappa=kappa,
+                        l=l,
+                        delta=delta,
+                        weight_matrix=W,
+                        qp=True
+                    )
+
+                    is_positive = weights_lap[0, 0] > 0.0
+
+                    if not is_positive:
+                        break
+
+                    if K_retries < max_K_retries:
+                        K_current += 2
+                        K_retries += 1
+                    else:
+                        break
 
         L[i, stencil_ids] = weights_lap[0, :]
 
@@ -247,7 +262,7 @@ def main(args):
                 # ratio = |w_center| / max(|w_neighbors|)
                 ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
                 
-                is_unstable = ratio < 3.0
+                is_unstable = ratio < 1.8
 
                 if is_positive and not is_unstable: # for gradient, we need positive
                     break
@@ -322,10 +337,10 @@ def main(args):
         fe = np.max(fe_pointwise)
         fe_boundary = np.max(fe_boundary_pointwise)
         ie = np.max(ie_pointwise)
-    st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
+    # st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
 
     print(f'FE: {fe:.3e} IE: {ie:.3e}')
-    print(f'ST: {st:.3e}')
+    # print(f'ST: {st:.3e}')
 
     if args.save:
         data = {
