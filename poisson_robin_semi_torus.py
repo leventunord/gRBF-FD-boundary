@@ -19,6 +19,9 @@ def main(args):
     if args.seed is not None:
         np.random.seed(args.seed)
 
+    if args.auto_K:
+        K_init = K
+
     #-- GEOMETRY --#
 
     theta, phi = sp.symbols('theta phi', real=True)
@@ -125,17 +128,54 @@ def main(args):
 
     bad_count = 0
     for i, i_id in enumerate(id_interior):
-        _, stencil_ids = tree_full.query(manifold.points[i_id], K)
+        if args.auto_K:
+            K_current = K
+            max_K_retries = 15
 
-        weights_lap = get_operator_weights(
-            stencil=manifold.points[stencil_ids],
-            tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
-            operator='lap',
-            kappa=kappa,
-            l=l,
-            delta=delta,
-            weight_matrix=W
-        ) # shape: (1, K)
+            K_retries = 0
+            while True:
+                _, stencil_ids = tree_full.query(manifold.points[i_id], K_current)
+
+                weights_lap = get_operator_weights(
+                    stencil=manifold.points[stencil_ids],
+                    tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                    operator='lap',
+                    kappa=kappa,
+                    l=l,
+                    delta=delta,
+                    weight_matrix=W
+                ) # shape: (1, K)
+
+                w_center = weights_lap[0, 0]
+                w_neighbors = weights_lap[0, 1:]
+                
+                is_positive = w_center > 0.0
+                
+                # ratio = |w_center| / max(|w_neighbors|)
+                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+                
+                is_unstable = ratio < 3.0
+
+                if not is_positive and not is_unstable:
+                    break
+
+                if K_retries < max_K_retries:
+                    K_current += 2
+                    K_retries += 1
+                else:
+                    break
+        else:
+            _, stencil_ids = tree_full.query(manifold.points[i_id], K)
+
+            weights_lap = get_operator_weights(
+                stencil=manifold.points[stencil_ids],
+                tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                operator='lap',
+                kappa=kappa,
+                l=l,
+                delta=delta,
+                weight_matrix=W
+            ) # shape: (1, K)
 
         # detecting bad weights
         w_center = weights_lap[0, 0]
@@ -174,24 +214,68 @@ def main(args):
     tree_interior = cKDTree(manifold.points[id_interior])
 
     for i, b_id in enumerate(id_boundary):
-        _, stencil_ids = tree_interior.query(manifold.points[b_id], K-1)
+        if args.auto_K:
+            K_current = K
+            max_K_retries = 15
 
-        # append boundary point
-        stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
-        stencil_ids = np.append(b_id, stencil_ids)
+            K_retries = 0
+            while True:
+                _, stencil_ids = tree_interior.query(manifold.points[b_id], K_current-1)
 
-        weights_grad = get_operator_weights(
-            stencil=stencil_points,
-            tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0],
-            operator='grad',
-            kappa=kappa,
-            l=l_grad,
-            delta=delta,
-            weight_matrix=W
-        ) # shape: (n, K)
+                # append boundary point
+                stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
+                stencil_ids = np.append(b_id, stencil_ids)
 
-        n_vec = n_vecs[i]
-        weights_grad_n = n_vec @ weights_grad
+                weights_grad = get_operator_weights(
+                    stencil=stencil_points,
+                    tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0],
+                    operator='grad',
+                    kappa=kappa,
+                    l=l_grad,
+                    delta=delta,
+                    weight_matrix=W
+                ) # shape: (n, K)
+
+                n_vec = n_vecs[i]
+                weights_grad_n = n_vec @ weights_grad # shape: (K,)
+
+                w_center = weights_grad_n[0]
+                w_neighbors = weights_grad_n[1:]
+                
+                is_positive = w_center > 0.0
+                
+                # ratio = |w_center| / max(|w_neighbors|)
+                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+                
+                is_unstable = ratio < 3.0
+
+                if is_positive and not is_unstable: # for gradient, we need positive
+                    break
+
+                if K_retries < max_K_retries:
+                    K_current += 2
+                    K_retries += 1
+                else:
+                    break
+        else:
+            _, stencil_ids = tree_interior.query(manifold.points[b_id], K-1)
+
+            # append boundary point
+            stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
+            stencil_ids = np.append(b_id, stencil_ids)
+
+            weights_grad = get_operator_weights(
+                stencil=stencil_points,
+                tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0],
+                operator='grad',
+                kappa=kappa,
+                l=l_grad,
+                delta=delta,
+                weight_matrix=W
+            ) # shape: (n, K)
+
+            n_vec = n_vecs[i]
+            weights_grad_n = n_vec @ weights_grad
 
         D_n[i, stencil_ids] = weights_grad_n
 
@@ -238,10 +322,10 @@ def main(args):
         fe = np.max(fe_pointwise)
         fe_boundary = np.max(fe_boundary_pointwise)
         ie = np.max(ie_pointwise)
-    # st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
+    st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
 
     print(f'FE: {fe:.3e} IE: {ie:.3e}')
-    # print(f'ST: {st:.3e}')
+    print(f'ST: {st:.3e}')
 
     if args.save:
         data = {
@@ -293,6 +377,10 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--qp', 
+        action='store_true'
+    )
+    parser.add_argument(
+        '--auto_K', 
         action='store_true'
     )
     parser.add_argument(
