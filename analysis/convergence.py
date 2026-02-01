@@ -13,13 +13,7 @@ def main(args):
         l_vals = [2, 3, 4, 5]
         trials = 4
 
-        seed_sequence = [
-            [13807, 66053, 74963, 15185],
-            [10585, 48781, 49297, 92519],
-            [5562, 57001, 22775, 29774],
-            [47005, 80904, 25119, 70938],
-            [35097, 27317, 53352, 82327]
-        ]
+        seeds = np.arange(trials)
 
         now = datetime.datetime.now()
         formatted_time = now.strftime('%m%d_%H%M%S')
@@ -29,12 +23,11 @@ def main(args):
             f.write("N,l_grad,trial,seed,FE,IE\n")
             
             for i, N in enumerate(N_vals):
-                seed_list = seed_sequence[i]
                 for t in range(trials):
-                    current_seed = seed_list[t]
+                    current_seed = seeds[t]
                     
                     for l in l_vals:
-                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed} --l2 --qp --auto_K -K 20 --save"
+                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed} --l2 --qp --auto_K -K 25"
                         output = subprocess.getoutput(cmd)
                         
                         fe = re.search(r"FE:\s+([0-9\.eE\-\+]+)", output).group(1)

@@ -19,9 +19,6 @@ def main(args):
     if args.seed is not None:
         np.random.seed(args.seed)
 
-    if args.auto_K:
-        K_init = K
-
     #-- GEOMETRY --#
 
     theta, phi = sp.symbols('theta phi', real=True)
@@ -36,14 +33,14 @@ def main(args):
     manifold.compute()
 
     theta_range = (0, 2*np.pi)
-    phi_range = (0, np.pi)
-    # phi_range = (np.pi / 9, 8 * np.pi / 9)
+    # phi_range = (0, np.pi)
+    phi_range = (np.pi / 9, 8 * np.pi / 9)
 
     phi_min = phi_range[0]
     phi_max = phi_range[1]
 
-    num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
-    # num_boundary = 2 * int(np.round(np.sqrt(2*r*9/(R*7))*np.sqrt(N))) # TODO: adaptive code
+    # num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
+    num_boundary = 2 * int(np.round(np.sqrt(2*r*9/(R*7))*np.sqrt(N))) # TODO: adaptive code
     num_interior = N - num_boundary
 
     manifold.sample([theta_range, phi_range], num_interior)
@@ -108,16 +105,19 @@ def main(args):
     # outward normal at each boundary point
     n_vecs = np.zeros((num_boundary, manifold.n)) # shape: (num_boundary, n)
 
-    # n_vec_left =  - manifold.get_local_basis([0, np.pi/9])[0][1]
-    # n_vec_right = manifold.get_local_basis([0, 8 * np.pi/9])[0][1]
+    n_vec_left =  manifold.get_local_basis([0, phi_min])[0][1]
+    n_vec_right = manifold.get_local_basis([0, phi_max])[0][1]
+
+    print(n_vec_left)
+    print(n_vec_right)
 
     for i in range(num_boundary):
         # TODO: do not hardcode
-        n_vecs[i, :] = [0.0, -1.0, 0.0]
-        # if i < num_boundary // 2:
-        #     n_vecs[i, :] = n_vec_left
-        # else:
-        #     n_vecs[i, :] = n_vec_right
+        # n_vecs[i, :] = [0.0, -1.0, 0.0]
+        if i < (num_boundary // 2):
+            n_vecs[i, :] = n_vec_left
+        else:
+            n_vecs[i, :] = n_vec_right
 
     g_vals = u_vals[id_boundary] + np.sum(n_vecs * u_grad_vals_boundary, axis=1) # shape: (num_boundary)
 
@@ -133,6 +133,16 @@ def main(args):
             max_K_retries = 15
 
             K_retries = 0
+
+            delta_current = delta
+            max_delta_retries = 3
+
+            delta_retires = 0
+
+            best_ratio = -1.0
+            best_weights = None
+            best_stencil_ids = None
+
             while True:
                 _, stencil_ids = tree_full.query(manifold.points[i_id], K_current)
 
@@ -146,6 +156,10 @@ def main(args):
                     weight_matrix=W
                 ) # shape: (1, K)
 
+                if K_current == K:
+                    initial_weights = weights_lap.copy()
+                    initial_stencil_ids = stencil_ids.copy()
+
                 w_center = weights_lap[0, 0]
                 w_neighbors = weights_lap[0, 1:]
                 
@@ -156,14 +170,34 @@ def main(args):
                 
                 is_unstable = ratio < 3.0
 
+                # record best
+                if not is_positive:
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_weights = weights_lap.copy()
+                        best_stencil_ids = stencil_ids.copy()
+
                 if not is_positive and not is_unstable:
                     break
 
-                if K_retries < max_K_retries:
+                if delta_retires < max_delta_retries:
+                    delta_current *= 2
+                    delta_retires += 1
+                elif K_retries < max_K_retries:
                     K_current += 2
                     K_retries += 1
+                    # reset delta
+                    delta_current = delta
+                    delta_retires = 0
                 else:
                     break
+
+            if best_weights is None:
+                weights_lap = initial_weights
+                stencil_ids = initial_stencil_ids
+            else:
+                weights_lap = best_weights
+                stencil_ids = best_stencil_ids
         else:
             _, stencil_ids = tree_full.query(manifold.points[i_id], K)
 
@@ -191,7 +225,7 @@ def main(args):
         if is_positive or is_unstable:
             bad_count += 1
             if args.qp:
-                K_current = len(stencil_ids)
+                K_current = K # fixed to initial K
                 max_K_retries = 15
 
                 K_retries = 0
@@ -341,6 +375,7 @@ def main(args):
 
     print(f'FE: {fe:.3e} IE: {ie:.3e}')
     # print(f'ST: {st:.3e}')
+    # print(f'FE (boundary): {fe_boundary:.3e}')
 
     if args.save:
         data = {
