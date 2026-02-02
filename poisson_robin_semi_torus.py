@@ -108,9 +108,6 @@ def main(args):
     n_vec_left =  manifold.get_local_basis([0, phi_min])[0][1]
     n_vec_right = manifold.get_local_basis([0, phi_max])[0][1]
 
-    print(n_vec_left)
-    print(n_vec_right)
-
     for i in range(num_boundary):
         # TODO: do not hardcode
         # n_vecs[i, :] = [0.0, -1.0, 0.0]
@@ -156,7 +153,7 @@ def main(args):
                     weight_matrix=W
                 ) # shape: (1, K)
 
-                if K_current == K:
+                if K_current == K and delta_current == delta:
                     initial_weights = weights_lap.copy()
                     initial_stencil_ids = stencil_ids.copy()
 
@@ -268,6 +265,15 @@ def main(args):
             max_K_retries = 15
 
             K_retries = 0
+
+            delta_current = delta
+            max_delta_retries = 3
+
+            delta_retires = 0
+
+            best_ratio = -1.0
+            best_weights = None
+            best_stencil_ids = None
             while True:
                 _, stencil_ids = tree_interior.query(manifold.points[b_id], K_current-1)
 
@@ -288,6 +294,10 @@ def main(args):
                 n_vec = n_vecs[i]
                 weights_grad_n = n_vec @ weights_grad # shape: (K,)
 
+                if K_current == K and delta_current == delta:
+                    initial_weights = weights_grad_n.copy()
+                    initial_stencil_ids = stencil_ids.copy()
+
                 w_center = weights_grad_n[0]
                 w_neighbors = weights_grad_n[1:]
                 
@@ -296,16 +306,34 @@ def main(args):
                 # ratio = |w_center| / max(|w_neighbors|)
                 ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
                 
-                is_unstable = ratio < 1.8
+                is_unstable = ratio < 1.0
+
+                if is_positive:
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_weights = weights_grad_n.copy()
+                        best_stencil_ids = stencil_ids.copy()
 
                 if is_positive and not is_unstable: # for gradient, we need positive
                     break
 
-                if K_retries < max_K_retries:
+                if delta_retires < max_delta_retries:
+                    delta_current *= 2
+                    delta_retires += 1
+                elif K_retries < max_K_retries:
                     K_current += 2
                     K_retries += 1
+                    delta_current = delta
+                    delta_retires = 0
                 else:
                     break
+            
+            if best_weights is None:
+                weights_grad_n = initial_weights
+                stencil_ids = initial_stencil_ids
+            else:
+                weights_grad_n = best_weights
+                stencil_ids = best_stencil_ids
         else:
             _, stencil_ids = tree_interior.query(manifold.points[b_id], K-1)
 
@@ -349,6 +377,7 @@ def main(args):
     b_prime = f_I - A_IB @ (B_BB_inv @ g_B)
 
     u_num_interior = np.linalg.solve(A_prime, b_prime)
+    # u_num_interior = np.zeros(num_interior)
     u_num_boundary = B_BB_inv @ (g_B - B_BI @ u_num_interior)
 
     u_num = np.zeros(N)

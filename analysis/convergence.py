@@ -27,7 +27,7 @@ def main(args):
                     current_seed = seeds[t]
                     
                     for l in l_vals:
-                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed} --l2 --qp --auto_K -K 25"
+                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed} --l2 --qp --auto_K -K 20"
                         output = subprocess.getoutput(cmd)
                         
                         fe = re.search(r"FE:\s+([0-9\.eE\-\+]+)", output).group(1)
