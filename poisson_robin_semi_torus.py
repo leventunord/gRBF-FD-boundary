@@ -15,6 +15,7 @@ def main(args):
     W = args.W
     W_grad = args.W_grad
     l_grad = args.l_grad
+    K_grad = args.K_grad
 
     if args.seed is not None:
         np.random.seed(args.seed)
@@ -227,6 +228,10 @@ def main(args):
 
                 K_retries = 0
 
+                best_ratio = -1.0
+                best_weights = None
+                best_stencil_ids = None
+
                 while True:
                     _, stencil_ids = tree_full.query(manifold.points[i_id], K_current)
 
@@ -241,16 +246,38 @@ def main(args):
                         qp=True
                     )
 
-                    is_positive = weights_lap[0, 0] > 0.0
+                    if weights_lap is not None:
+                        # detecting bad weights
+                        w_center = weights_lap[0, 0]
+                        w_neighbors = weights_lap[0, 1:]
+                        
+                        is_positive = w_center > 0.0
+                        
+                        # ratio = |w_center| / max(|w_neighbors|)
+                        ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+                        
+                        is_unstable = ratio < 1.0
 
-                    if not is_positive:
-                        break
+                        if not is_positive:
+                            if ratio > best_ratio:
+                                best_ratio = ratio
+                                best_weights = weights_lap.copy()
+                                best_stencil_ids = stencil_ids.copy()
+
+                        if not is_positive and not is_unstable:
+                            break
 
                     if K_retries < max_K_retries:
                         K_current += 2
                         K_retries += 1
                     else:
                         break
+
+                if best_weights is None:
+                    raise RuntimeError("operator sign error")
+                else:
+                    weights_lap = best_weights
+                    stencil_ids = best_stencil_ids
 
         L[i, stencil_ids] = weights_lap[0, :]
 
@@ -261,7 +288,7 @@ def main(args):
 
     for i, b_id in enumerate(id_boundary):
         if args.auto_K:
-            K_current = K
+            K_current = K_grad
             max_K_retries = 15
 
             K_retries = 0
@@ -306,7 +333,7 @@ def main(args):
                 # ratio = |w_center| / max(|w_neighbors|)
                 ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
                 
-                is_unstable = ratio < 1.0
+                is_unstable = ratio < 3.0
 
                 if is_positive:
                     if ratio > best_ratio:
@@ -329,13 +356,12 @@ def main(args):
                     break
             
             if best_weights is None:
-                weights_grad_n = initial_weights
-                stencil_ids = initial_stencil_ids
+                raise RuntimeError("operator sign error")
             else:
                 weights_grad_n = best_weights
                 stencil_ids = best_stencil_ids
         else:
-            _, stencil_ids = tree_interior.query(manifold.points[b_id], K-1)
+            _, stencil_ids = tree_interior.query(manifold.points[b_id], K_grad-1)
 
             # append boundary point
             stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
@@ -427,10 +453,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '-N', type=int, default=1600
+        '-N', type=int, default=6400
     )
     parser.add_argument(
-        '-K', type=int, default=50
+        '-K', type=int, default=20
+    )
+    parser.add_argument(
+        '--K_grad', type=int, default=20
     )
     parser.add_argument(
         '-l', type=int, default=4
@@ -451,24 +480,19 @@ if __name__ == '__main__':
         '--W_grad', type=str, default='1/K'
     )
     parser.add_argument(
-        '--save', 
-        action='store_true'
+        '--save', action='store_true'
     )
     parser.add_argument(
-        '--qp', 
-        action='store_true'
+        '--qp', action='store_true', default=True
     )
     parser.add_argument(
-        '--auto_K', 
-        action='store_true'
+        '--auto_K', action='store_true', default=True
     )
     parser.add_argument(
-        '--l2', 
-        action='store_true'
+        '--l2', action='store_true', default=True
     )
     parser.add_argument(
-        '--screened', 
-        action='store_true'
+        '--screened', action='store_true'
     )
     parser.add_argument(
         '--seed', type=int, default=None

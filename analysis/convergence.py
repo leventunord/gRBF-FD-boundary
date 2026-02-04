@@ -10,7 +10,9 @@ from utils import *
 def main(args):
     if args.csv is None:
         N_vals = [1600, 3200, 6400, 12800, 25600]
-        l_vals = [2, 3, 4, 5]
+        l_grad_vals = [2, 3, 4, 5]
+        K_grad_vals = [15, 20, 25, 30]
+
         trials = 4
 
         seeds = np.arange(trials)
@@ -26,16 +28,18 @@ def main(args):
                 for t in range(trials):
                     current_seed = seeds[t]
                     
-                    for l in l_vals:
-                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l} --seed {current_seed} --l2 --qp --auto_K -K 20"
+                    for i in range(len(l_grad_vals)):
+                        l_grad = l_grad_vals[i]
+                        K_grad = K_grad_vals[i]
+                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l_grad} --K_grad {K_grad} --seed {current_seed}"
                         output = subprocess.getoutput(cmd)
                         
                         fe = re.search(r"FE:\s+([0-9\.eE\-\+]+)", output).group(1)
                         ie = re.search(r"IE:\s+([0-9\.eE\-\+]+)", output).group(1)
                 
-                        print(f"[N={N}, l={l}, T={t+1}] FE: {fe} | IE: {ie}")
+                        print(f"[N={N}, l_grad={l_grad}, T={t+1}] FE: {fe} | IE: {ie}")
                         
-                        f.write(f"{N},{l},{t+1},{current_seed},{fe},{ie}\n")
+                        f.write(f"{N},{l_grad},{t+1},{current_seed},{fe},{ie}\n")
                         f.flush()
 
     else:

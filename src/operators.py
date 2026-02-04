@@ -50,69 +50,59 @@ def get_operator_weights(stencil, tangent_basis, kappa=3, l=4, delta=1e-8, qp=Fa
         P[:, j] = np.prod(norm_coords**alpha, axis=1)
 
     if qp:
-        # quadratic programming
+        H_diag = np.ones(K + 1)
+        H_diag[0] = 1.0 / (K**2) # center point weight
+        H_diag[-1] = K**2 # slack variable 
+
+        ### objective
+        H = np.diag(H_diag)
+        f = np.zeros(K + 1)
+
+        ### inequality contraints
+        A = np.zeros((K + 2, K + 1))
+        b = np.zeros(K + 2)
+
+        row_id = 0
+
+        # center: w_0 <= 0
+        A[row_id, 0] = 1.0
+
+        row_id += 1
+        
+        # neighbors: -w_i - C <= 0
+        for i in range(1, K):
+            A[row_id, i] = -1.0
+            A[row_id, -1] = -1.0
+            row_id += 1
+
+        # slack: -C <= 0
+        A[row_id, -1] = -1.0
+
+        row_id += 1
+
+        # slack upper bound: C <= 10^5
+        A[row_id, -1] = 1.0
+        b[row_id] = 10**5
+
+        ### equality contraints
+        A_eq = np.zeros((m, K + 1))
+        A_eq[:, :K] = P.T
+
         b_eq = np.zeros(m)
         for j, alpha in enumerate(poly_basis):
             if sum(alpha) == 2 and max(alpha) == 2:
-                b_eq[j] = 2.0
-
-        H_diag = np.ones(K + 1)
-        H_diag[0] = 1.0 / (K**2) # center point weight
-        H_diag[-1] = (100 * K)**2 # slack variable 
-
-        # QP matrices
-        H = matrix(np.diag(H_diag))
-        q = matrix(np.zeros(K + 1))
-
-        # constrains
-        G_np = np.zeros((K + 2, K + 1))
-        h_np = np.zeros(K + 2)
-        
-        row_idx = 0
-
-        # Center sign: w_0 <= 0
-        G_np[row_idx, 0] = 1.0 
-        row_idx += 1
-        
-        # Neighbor sign: -w_j - C <= 0 (for j=1..K-1)
-        for j in range(1, K):
-            G_np[row_idx, j] = -1.0
-            G_np[row_idx, -1] = -1.0
-            row_idx += 1
-            
-        # Slack variable sign: -C <= 0
-        G_np[row_idx, -1] = -1.0
-        row_idx += 1
-
-        # Slack variable upper bound
-        G_np[row_idx, -1] = 1.0
-        h_np[row_idx] = 10**5
-        row_idx += 1
-        
-        G = matrix(G_np)
-        h = matrix(h_np)
-
-        A_np = np.zeros((m, K + 1))
-        A_np[:, :K] = P.T # 多项式一致性仅约束权重 w
-        
-        A = matrix(A_np)
-        b = matrix(b_eq)
+                b_eq[j] = 2.0 / (diameter**2) # normalized here
 
         # try:
-        sol = solvers.qp(H, q, G, h, A, b)
+        sol = solvers.qp(matrix(H), matrix(f), matrix(A), matrix(b), matrix(A_eq), matrix(b_eq))
+        if sol['status'] != 'optimal':
+            return None
+
         x_sol = np.array(sol['x']) # shape: (K + 1, 1)
-        
         weights = x_sol[:K, :].T # shape: (1, K)
-        
-        weights = weights / (diameter**2)
         
         return weights
             
-        # except ValueError:
-        #     # 如果 QP 无解（通常是因为 K 太小，几何太差），返回 None
-        #     # 外部循环应该捕获这个 None 并增加 K 重试
-        #     return None
-
     dist = np.sqrt(np.sum((norm_coords[:, None, :] - norm_coords[None, :, :]) ** 2, axis=-1))
     Phi = dist ** (2 * kappa + 1)
 

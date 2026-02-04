@@ -42,7 +42,7 @@ def plot_convergence(N_vals, err_stat_list, filename='temp', ref_anchor=None):
 
     ax.legend()
 
-    plt.title(r"$\partial u/\partial n$ FE (fixed) K=50 with QP")
+    plt.title(r"IE (auto K) with QP")
 
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()
