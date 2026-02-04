@@ -132,11 +132,6 @@ def main(args):
 
             K_retries = 0
 
-            delta_current = delta
-            max_delta_retries = 3
-
-            delta_retires = 0
-
             best_ratio = -1.0
             best_weights = None
             best_stencil_ids = None
@@ -154,7 +149,7 @@ def main(args):
                     weight_matrix=W,
                 ) # shape: (1, K)
 
-                if K_current == K and delta_current == delta:
+                if K_current == K:
                     initial_weights = weights_lap.copy()
                     initial_stencil_ids = stencil_ids.copy()
 
@@ -178,15 +173,9 @@ def main(args):
                 if not is_positive and not is_unstable:
                     break
 
-                if delta_retires < max_delta_retries:
-                    delta_current *= 2
-                    delta_retires += 1
-                elif K_retries < max_K_retries:
+                if K_retries < max_K_retries:
                     K_current += 2
                     K_retries += 1
-                    # reset delta
-                    delta_current = delta
-                    delta_retires = 0
                 else:
                     break
 
@@ -293,11 +282,6 @@ def main(args):
 
             K_retries = 0
 
-            delta_current = delta
-            max_delta_retries = 3
-
-            delta_retires = 0
-
             best_ratio = -1.0
             best_weights = None
             best_stencil_ids = None
@@ -321,7 +305,7 @@ def main(args):
                 n_vec = n_vecs[i]
                 weights_grad_n = n_vec @ weights_grad # shape: (K,)
 
-                if K_current == K and delta_current == delta:
+                if K_current == K:
                     initial_weights = weights_grad_n.copy()
                     initial_stencil_ids = stencil_ids.copy()
 
@@ -344,14 +328,9 @@ def main(args):
                 if is_positive and not is_unstable: # for gradient, we need positive
                     break
 
-                if delta_retires < max_delta_retries:
-                    delta_current *= 2
-                    delta_retires += 1
-                elif K_retries < max_K_retries:
+                if K_retries < max_K_retries:
                     K_current += 2
                     K_retries += 1
-                    delta_current = delta
-                    delta_retires = 0
                 else:
                     break
             
