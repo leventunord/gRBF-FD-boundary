@@ -151,7 +151,7 @@ def main(args):
                     kappa=kappa,
                     l=l,
                     delta=delta,
-                    weight_matrix=W
+                    weight_matrix=W,
                 ) # shape: (1, K)
 
                 if K_current == K and delta_current == delta:

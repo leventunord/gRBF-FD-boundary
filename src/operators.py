@@ -135,12 +135,14 @@ def get_operator_weights(stencil, tangent_basis, kappa=3, l=4, delta=1e-8, qp=Fa
         Phi_inv = np.linalg.inv(Phi)
     else:
         reg_term = (delta**2) * np.eye(K)
-        inv_term = np.linalg.inv(Phi.T @ W @ Phi + reg_term)
-        Phi_inv = inv_term @ Phi.T @ W
+        Phi_inv = np.linalg.solve(Phi.T @ W @ Phi + reg_term, Phi.T @ W)
 
     P_t_W_P = P.T @ W @ P
-    P_t_W_P_inv = np.linalg.inv(P_t_W_P)
-    P_inv_block = P_t_W_P_inv @ P.T @ W
+
+    if np.linalg.cond(P_t_W_P) > 1e14:
+        P_t_W_P += 1e-12 * np.eye(m)
+    
+    P_inv_block = np.linalg.solve(P_t_W_P, P.T @ W)
 
     w_poly = dP @ P_inv_block
     
