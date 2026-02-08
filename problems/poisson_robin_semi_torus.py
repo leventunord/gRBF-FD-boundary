@@ -1,24 +1,13 @@
 from src import *
 from scipy.spatial import cKDTree
-import argparse
 import pickle
 import datetime
 
-def main(args):
+def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad=20, W='1/K', W_grad='1/K', seed=None, auto_K=True, qp=True, l2=True, save=False):
     #-- PARAMETERS --#
 
-    N = args.N
-    K = args.K
-    l = args.l
-    kappa = args.kappa
-    delta = args.delta
-    W = args.W
-    W_grad = args.W_grad
-    l_grad = args.l_grad
-    K_grad = args.K_grad
-
-    if args.seed is not None:
-        np.random.seed(args.seed)
+    if seed is not None:
+        np.random.seed(seed)
 
     #-- GEOMETRY --#
 
@@ -81,10 +70,8 @@ def main(args):
 
     u_lap_sym = manifold.get_laplacian(u_sym)
     u_grad_sym = manifold.get_gradient(u_sym)
-    if args.screened:
-        f_sym = u_sym - u_lap_sym
-    else:
-        f_sym = -u_lap_sym
+
+    f_sym = -u_lap_sym
 
     tt = manifold.params[:, 0]
     pp = manifold.params[:, 1]
@@ -122,11 +109,16 @@ def main(args):
     #-- OPERATORS --#
 
     L = np.zeros((num_interior, N))
+    positive_before_qp = []
+    positive_after_qp = []
+    ratio_before_qp = []
+    ratio_after_qp = []
+
     tree_full = cKDTree(manifold.points)
 
     bad_count = 0
     for i, i_id in enumerate(id_interior):
-        if args.auto_K:
+        if auto_K:
             K_current = K
             max_K_retries = 15
 
@@ -209,9 +201,12 @@ def main(args):
         
         is_unstable = ratio < 1.0
 
+        positive_before_qp.append(is_positive)
+        ratio_before_qp.append(ratio)
+
         if is_positive or is_unstable:
             bad_count += 1
-            if args.qp:
+            if qp:
                 K_current = K # fixed to initial K
                 max_K_retries = 15
 
@@ -263,20 +258,38 @@ def main(args):
                         break
 
                 if best_weights is None:
-                    raise RuntimeError("operator sign error")
+                    if weights_lap is not None:
+                        print(f'Warning: center weight positive at interior index {i_id}')
+                        pass # use last weights
+                    else:
+                        # no optimal solution 
+                        raise RuntimeError('no optimal solution')
                 else:
                     weights_lap = best_weights
                     stencil_ids = best_stencil_ids
 
+                w_center = weights_lap[0, 0]
+                w_neighbors = weights_lap[0, 1:]
+                
+                is_positive = w_center > 0.0
+                
+                # ratio = |w_center| / max(|w_neighbors|)
+                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+                
+                is_unstable = ratio < 1.0
+
+                positive_after_qp.append(is_positive)
+                ratio_after_qp.append(ratio)
+
         L[i, stencil_ids] = weights_lap[0, :]
 
-    print(f"bad count = {bad_count}")
+    # print(f"bad count = {bad_count}")
 
     D_n = np.zeros((num_boundary, N))
     tree_interior = cKDTree(manifold.points[id_interior])
 
     for i, b_id in enumerate(id_boundary):
-        if args.auto_K:
+        if auto_K:
             K_current = K_grad
             max_K_retries = 15
 
@@ -362,10 +375,7 @@ def main(args):
         D_n[i, stencil_ids] = weights_grad_n
 
     #-- SYSTEM PARTITION --#
-    if args.screened:
-        A = np.eye(N)[:num_interior, :] - L
-    else:
-        A = -L
+    A = -L
     A_II = A[:, id_interior]
     A_IB = A[:, id_boundary]
 
@@ -397,7 +407,7 @@ def main(args):
     # du/dn FE
     fe_boundary_pointwise = np.abs(D_n @ u_vals - np.sum(n_vecs * u_grad_vals_boundary, axis=1))
 
-    if args.l2:
+    if l2:
         fe = np.sqrt(np.sum(fe_pointwise ** 2) / num_interior)
         fe_boundary = np.sqrt(np.sum(fe_boundary_pointwise ** 2) / num_boundary)
         ie = np.sqrt(np.sum(ie_pointwise ** 2) / N)
@@ -407,11 +417,8 @@ def main(args):
         ie = np.max(ie_pointwise)
     # st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
 
-    print(f'FE: {fe:.3e} IE: {ie:.3e}')
-    # print(f'ST: {st:.3e}')
-    # print(f'FE (boundary): {fe_boundary:.3e}')
 
-    if args.save:
+    if save:
         data = {
             'params': manifold.params,
             'points': manifold.points,
@@ -424,58 +431,8 @@ def main(args):
         now = datetime.datetime.now()
         formatted_time = now.strftime('%m%d_%H%M%S')
 
-        filename = f"N{N}_l_grad{l_grad}reg_{args.delta}_qp_l2_seed{args.seed}"
+        filename = f"N{N}_l_grad{l_grad}reg_{delta}_qp_l2_seed{seed}"
         with open(f'./results/poisson_robin_semi_torus/{filename}.pkl', 'wb') as f:
             pickle.dump(data, f)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        '-N', type=int, default=6400
-    )
-    parser.add_argument(
-        '-K', type=int, default=20
-    )
-    parser.add_argument(
-        '--K_grad', type=int, default=20
-    )
-    parser.add_argument(
-        '-l', type=int, default=4
-    )
-    parser.add_argument(
-        '--kappa', type=int, default=3
-    )
-    parser.add_argument(
-        '--delta', type=float, default=1e-5
-    )
-    parser.add_argument(
-        '-W', type=str, default='1/K'
-    )
-    parser.add_argument(
-        '--l_grad', type=int, default=3
-    )
-    parser.add_argument(
-        '--W_grad', type=str, default='1/K'
-    )
-    parser.add_argument(
-        '--save', action='store_true'
-    )
-    parser.add_argument(
-        '--qp', action='store_true', default=True
-    )
-    parser.add_argument(
-        '--auto_K', action='store_true', default=True
-    )
-    parser.add_argument(
-        '--l2', action='store_true', default=True
-    )
-    parser.add_argument(
-        '--screened', action='store_true'
-    )
-    parser.add_argument(
-        '--seed', type=int, default=None
-    )
-
-    args = parser.parse_args()
-    main(args)
+    return fe, ie

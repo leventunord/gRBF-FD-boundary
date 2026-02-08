@@ -66,6 +66,7 @@ def get_operator_weights(stencil, tangent_basis, kappa=3, l=4, delta=1e-8, qp=Fa
 
         # center: w_0 <= 0
         A[row_id, 0] = 1.0
+        A[row_id, -1] = 1.0 # w_0 + C <= 0
 
         row_id += 1
         

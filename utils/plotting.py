@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 
-def plot_convergence(N_vals, err_stat_list, filename='temp', ref_anchor=None):
+def plot_convergence(N_vals, err_stat_list, title='Error', filename='temp', ref_anchor=None):
     fig, ax = plt.subplots(figsize=(9, 6))
 
     for stat in err_stat_list:
@@ -42,7 +42,7 @@ def plot_convergence(N_vals, err_stat_list, filename='temp', ref_anchor=None):
 
     ax.legend()
 
-    plt.title(r"IE (auto K) with QP")
+    plt.title(title)
 
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()

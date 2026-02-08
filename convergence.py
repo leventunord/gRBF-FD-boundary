@@ -1,17 +1,18 @@
-import subprocess
 import argparse
-import random
 import re
 import datetime
 from pathlib import Path
 import numpy as np
 from utils import *
+from problems import *
 
 def main(args):
     if args.csv is None:
         N_vals = [1600, 3200, 6400, 12800, 25600]
         l_grad_vals = [2, 3, 4, 5]
         K_grad_vals = [15, 20, 25, 30]
+        # l_vals = [2, 3, 4, 5]
+        # K_vals = [15, 20, 25, 30]
 
         trials = 4
 
@@ -28,18 +29,17 @@ def main(args):
                 for t in range(trials):
                     current_seed = seeds[t]
                     
-                    for i in range(len(l_grad_vals)):
+                    for i in range(trials):
                         l_grad = l_grad_vals[i]
                         K_grad = K_grad_vals[i]
-                        cmd = f"python poisson_robin_semi_torus.py -N {N} --l_grad {l_grad} --K_grad {K_grad} --seed {current_seed}"
-                        output = subprocess.getoutput(cmd)
-                        
-                        fe = re.search(r"FE:\s+([0-9\.eE\-\+]+)", output).group(1)
-                        ie = re.search(r"IE:\s+([0-9\.eE\-\+]+)", output).group(1)
+                        # l = l_vals[i]
+                        # K = K_vals[i]
+                        fe, ie = poisson_robin_semi_torus(N, l_grad=l_grad, K_grad=K_grad, seed=current_seed)
                 
-                        print(f"[N={N}, l_grad={l_grad}, T={t+1}] FE: {fe} | IE: {ie}")
+                        print(f"[N={N}, l_grad={l_grad}, T={t+1}] FE: {fe:.3e} | IE: {ie:.3e}")
+                        # print(f"[N={N}, l={l}, T={t+1}] FE: {fe} | IE: {ie}")
                         
-                        f.write(f"{N},{l_grad},{t+1},{current_seed},{fe},{ie}\n")
+                        f.write(f"{N},{l_grad},{t+1},{current_seed},{fe:.3e},{ie:.3e}\n")
                         f.flush()
 
     else:
@@ -63,6 +63,7 @@ def main(args):
         for n in unique_Ns:
             mask = (data['N'] == n) & (data['l_grad'] == l)
             err_vals = data['IE'][mask]
+            # err_vals = data['FE'][mask]
             
             if err_vals.size > 0:
                 mean_list.append(np.mean(err_vals))
@@ -78,7 +79,7 @@ def main(args):
         }
         err_stat_list.append(stat)
 
-    plot_convergence(unique_Ns, err_stat_list)
+    plot_convergence(unique_Ns, err_stat_list, title='IE (auto K) with QP')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
