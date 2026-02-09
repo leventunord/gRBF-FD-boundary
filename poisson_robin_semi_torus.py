@@ -210,7 +210,6 @@ def main(args):
         is_unstable = ratio < 1.0
 
         if is_positive or is_unstable:
-            bad_count += 1
             if args.qp:
                 K_current = K # fixed to initial K
                 max_K_retries = 15
@@ -270,7 +269,6 @@ def main(args):
 
         L[i, stencil_ids] = weights_lap[0, :]
 
-    print(f"bad count = {bad_count}")
 
     D_n = np.zeros((num_boundary, N))
     tree_interior = cKDTree(manifold.points[id_interior])
@@ -305,7 +303,7 @@ def main(args):
                 n_vec = n_vecs[i]
                 weights_grad_n = n_vec @ weights_grad # shape: (K,)
 
-                if K_current == K:
+                if K_current == K_grad:
                     initial_weights = weights_grad_n.copy()
                     initial_stencil_ids = stencil_ids.copy()
 
@@ -435,7 +433,7 @@ if __name__ == '__main__':
         '-N', type=int, default=6400
     )
     parser.add_argument(
-        '-K', type=int, default=20
+        '-K', type=int, default=25
     )
     parser.add_argument(
         '--K_grad', type=int, default=20
