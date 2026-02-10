@@ -34,14 +34,14 @@ def main(args):
     manifold.compute()
 
     theta_range = (0, 2*np.pi)
-    # phi_range = (0, np.pi)
-    phi_range = (np.pi / 9, 8 * np.pi / 9)
+    phi_range = (0, np.pi)
+    # phi_range = (np.pi / 9, 8 * np.pi / 9)
 
     phi_min = phi_range[0]
     phi_max = phi_range[1]
 
-    # num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
-    num_boundary = 2 * int(np.round(np.sqrt(2*r*9/(R*7))*np.sqrt(N))) # TODO: adaptive code
+    num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
+    # num_boundary = 2 * int(np.round(np.sqrt(2*r*9/(R*7))*np.sqrt(N))) # TODO: adaptive code
     num_interior = N - num_boundary
 
     manifold.sample([theta_range, phi_range], num_interior)
@@ -111,11 +111,11 @@ def main(args):
 
     for i in range(num_boundary):
         # TODO: do not hardcode
-        # n_vecs[i, :] = [0.0, -1.0, 0.0]
-        if i < (num_boundary // 2):
-            n_vecs[i, :] = n_vec_left
-        else:
-            n_vecs[i, :] = n_vec_right
+        n_vecs[i, :] = [0.0, -1.0, 0.0]
+        # if i < (num_boundary // 2):
+        #     n_vecs[i, :] = n_vec_left
+        # else:
+        #     n_vecs[i, :] = n_vec_right
 
     g_vals = u_vals[id_boundary] + np.sum(n_vecs * u_grad_vals_boundary, axis=1) # shape: (num_boundary)
 
