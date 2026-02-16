@@ -1,10 +1,11 @@
 from src import *
 from scipy.spatial import cKDTree
-import pickle
-import datetime
 
-def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad=20, W='1/K', W_grad='1/K', seed=None, auto_K=True, qp=True, l2=True, save=False):
+def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
     #-- PARAMETERS --#
+
+    kappa = 3
+    delta = 1e-5
 
     if seed is not None:
         np.random.seed(seed)
@@ -23,14 +24,12 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
     manifold.compute()
 
     theta_range = (0, 2*np.pi)
-    # phi_range = (0, np.pi)
-    phi_range = (np.pi / 9, 8 * np.pi / 9)
+    phi_range = (0, np.pi)
 
     phi_min = phi_range[0]
     phi_max = phi_range[1]
 
-    # num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
-    num_boundary = 2 * int(np.round(np.sqrt(2*r*9/(R*7))*np.sqrt(N))) # TODO: adaptive code
+    num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
     num_interior = N - num_boundary
 
     manifold.sample([theta_range, phi_range], num_interior)
@@ -70,7 +69,6 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
 
     u_lap_sym = manifold.get_laplacian(u_sym)
     u_grad_sym = manifold.get_gradient(u_sym)
-
     f_sym = -u_lap_sym
 
     tt = manifold.params[:, 0]
@@ -97,29 +95,89 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
     n_vec_right = manifold.get_local_basis([0, phi_max])[0][1]
 
     for i in range(num_boundary):
-        # TODO: do not hardcode
-        # n_vecs[i, :] = [0.0, -1.0, 0.0]
-        if i < (num_boundary // 2):
-            n_vecs[i, :] = n_vec_left
-        else:
-            n_vecs[i, :] = n_vec_right
+        n_vecs[i, :] = [0.0, -1.0, 0.0]
 
     g_vals = u_vals[id_boundary] + np.sum(n_vecs * u_grad_vals_boundary, axis=1) # shape: (num_boundary)
 
     #-- OPERATORS --#
 
     L = np.zeros((num_interior, N))
-    positive_before_qp = []
-    positive_after_qp = []
-    ratio_before_qp = []
-    ratio_after_qp = []
-
     tree_full = cKDTree(manifold.points)
 
     bad_count = 0
     for i, i_id in enumerate(id_interior):
-        if auto_K:
-            K_current = K
+        K_current = K
+        max_K_retries = 15
+
+        K_retries = 0
+
+        best_ratio = -1.0
+        best_weights = None
+        best_stencil_ids = None
+
+        while True:
+            _, stencil_ids = tree_full.query(manifold.points[i_id], K_current)
+
+            weights_lap = get_operator_weights(
+                stencil=manifold.points[stencil_ids],
+                tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
+                operator='lap',
+                kappa=kappa,
+                l=l,
+                delta=delta,
+            ) # shape: (1, K)
+
+            if K_current == K:
+                initial_weights = weights_lap.copy()
+                initial_stencil_ids = stencil_ids.copy()
+
+            w_center = weights_lap[0, 0]
+            w_neighbors = weights_lap[0, 1:]
+            
+            is_positive = w_center > 0.0
+            
+            # ratio = |w_center| / max(|w_neighbors|)
+            ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+            
+            is_unstable = ratio < 3.0
+
+            # record best
+            if not is_positive:
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_weights = weights_lap.copy()
+                    best_stencil_ids = stencil_ids.copy()
+
+            if not is_positive and not is_unstable:
+                break
+
+            if K_retries < max_K_retries:
+                K_current += 2
+                K_retries += 1
+            else:
+                break
+
+        if best_weights is None:
+            weights_lap = initial_weights
+            stencil_ids = initial_stencil_ids
+        else:
+            weights_lap = best_weights
+            stencil_ids = best_stencil_ids
+
+        # detecting bad weights
+        w_center = weights_lap[0, 0]
+        w_neighbors = weights_lap[0, 1:]
+        
+        is_positive = w_center > 0.0
+        
+        # ratio = |w_center| / max(|w_neighbors|)
+        ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+        
+        is_unstable = ratio < 1.0
+
+        if is_positive or is_unstable:
+            # qp processing
+            K_current = K # fixed to initial K
             max_K_retries = 15
 
             K_retries = 0
@@ -138,32 +196,29 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
                     kappa=kappa,
                     l=l,
                     delta=delta,
-                    weight_matrix=W,
-                ) # shape: (1, K)
+                    qp=True
+                )
 
-                if K_current == K:
-                    initial_weights = weights_lap.copy()
-                    initial_stencil_ids = stencil_ids.copy()
+                if weights_lap is not None:
+                    # detecting bad weights
+                    w_center = weights_lap[0, 0]
+                    w_neighbors = weights_lap[0, 1:]
+                    
+                    is_positive = w_center > 0.0
+                    
+                    # ratio = |w_center| / max(|w_neighbors|)
+                    ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+                    
+                    is_unstable = ratio < 1.0
 
-                w_center = weights_lap[0, 0]
-                w_neighbors = weights_lap[0, 1:]
-                
-                is_positive = w_center > 0.0
-                
-                # ratio = |w_center| / max(|w_neighbors|)
-                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
-                
-                is_unstable = ratio < 3.0
+                    if not is_positive:
+                        if ratio > best_ratio:
+                            best_ratio = ratio
+                            best_weights = weights_lap.copy()
+                            best_stencil_ids = stencil_ids.copy()
 
-                # record best
-                if not is_positive:
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_weights = weights_lap.copy()
-                        best_stencil_ids = stencil_ids.copy()
-
-                if not is_positive and not is_unstable:
-                    break
+                    if not is_positive and not is_unstable:
+                        break
 
                 if K_retries < max_K_retries:
                     K_current += 2
@@ -172,188 +227,27 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
                     break
 
             if best_weights is None:
-                weights_lap = initial_weights
-                stencil_ids = initial_stencil_ids
+                raise RuntimeError("lb operator sign error")
             else:
                 weights_lap = best_weights
                 stencil_ids = best_stencil_ids
-        else:
-            _, stencil_ids = tree_full.query(manifold.points[i_id], K)
-
-            weights_lap = get_operator_weights(
-                stencil=manifold.points[stencil_ids],
-                tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
-                operator='lap',
-                kappa=kappa,
-                l=l,
-                delta=delta,
-                weight_matrix=W
-            ) # shape: (1, K)
-
-        # detecting bad weights
-        w_center = weights_lap[0, 0]
-        w_neighbors = weights_lap[0, 1:]
-        
-        is_positive = w_center > 0.0
-        
-        # ratio = |w_center| / max(|w_neighbors|)
-        ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
-        
-        is_unstable = ratio < 1.0
-
-        positive_before_qp.append(is_positive)
-        ratio_before_qp.append(ratio)
-
-        if is_positive or is_unstable:
-            bad_count += 1
-            if qp:
-                K_current = K # fixed to initial K
-                max_K_retries = 15
-
-                K_retries = 0
-
-                best_ratio = -1.0
-                best_weights = None
-                best_stencil_ids = None
-
-                while True:
-                    _, stencil_ids = tree_full.query(manifold.points[i_id], K_current)
-
-                    weights_lap = get_operator_weights(
-                        stencil=manifold.points[stencil_ids],
-                        tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
-                        operator='lap',
-                        kappa=kappa,
-                        l=l,
-                        delta=delta,
-                        weight_matrix=W,
-                        qp=True
-                    )
-
-                    if weights_lap is not None:
-                        # detecting bad weights
-                        w_center = weights_lap[0, 0]
-                        w_neighbors = weights_lap[0, 1:]
-                        
-                        is_positive = w_center > 0.0
-                        
-                        # ratio = |w_center| / max(|w_neighbors|)
-                        ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
-                        
-                        is_unstable = ratio < 1.0
-
-                        if not is_positive:
-                            if ratio > best_ratio:
-                                best_ratio = ratio
-                                best_weights = weights_lap.copy()
-                                best_stencil_ids = stencil_ids.copy()
-
-                        if not is_positive and not is_unstable:
-                            break
-
-                    if K_retries < max_K_retries:
-                        K_current += 2
-                        K_retries += 1
-                    else:
-                        break
-
-                if best_weights is None:
-                    if weights_lap is not None:
-                        print(f'Warning: center weight positive at interior index {i_id}')
-                        pass # use last weights
-                    else:
-                        # no optimal solution 
-                        raise RuntimeError('no optimal solution')
-                else:
-                    weights_lap = best_weights
-                    stencil_ids = best_stencil_ids
-
-                w_center = weights_lap[0, 0]
-                w_neighbors = weights_lap[0, 1:]
-                
-                is_positive = w_center > 0.0
-                
-                # ratio = |w_center| / max(|w_neighbors|)
-                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
-                
-                is_unstable = ratio < 1.0
-
-                positive_after_qp.append(is_positive)
-                ratio_after_qp.append(ratio)
 
         L[i, stencil_ids] = weights_lap[0, :]
-
-    # print(f"bad count = {bad_count}")
 
     D_n = np.zeros((num_boundary, N))
     tree_interior = cKDTree(manifold.points[id_interior])
 
     for i, b_id in enumerate(id_boundary):
-        if auto_K:
-            K_current = K_grad
-            max_K_retries = 15
+        K_current = K_grad
+        max_K_retries = 15
 
-            K_retries = 0
+        K_retries = 0
 
-            best_ratio = -1.0
-            best_weights = None
-            best_stencil_ids = None
-            while True:
-                _, stencil_ids = tree_interior.query(manifold.points[b_id], K_current-1)
-
-                # append boundary point
-                stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
-                stencil_ids = np.append(b_id, stencil_ids)
-
-                weights_grad = get_operator_weights(
-                    stencil=stencil_points,
-                    tangent_basis=manifold.get_local_basis(manifold.params[b_id])[0],
-                    operator='grad',
-                    kappa=kappa,
-                    l=l_grad,
-                    delta=delta,
-                    weight_matrix=W
-                ) # shape: (n, K)
-
-                n_vec = n_vecs[i]
-                weights_grad_n = n_vec @ weights_grad # shape: (K,)
-
-                if K_current == K:
-                    initial_weights = weights_grad_n.copy()
-                    initial_stencil_ids = stencil_ids.copy()
-
-                w_center = weights_grad_n[0]
-                w_neighbors = weights_grad_n[1:]
-                
-                is_positive = w_center > 0.0
-                
-                # ratio = |w_center| / max(|w_neighbors|)
-                ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
-                
-                is_unstable = ratio < 3.0
-
-                if is_positive:
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_weights = weights_grad_n.copy()
-                        best_stencil_ids = stencil_ids.copy()
-
-                if is_positive and not is_unstable: # for gradient, we need positive
-                    break
-
-                if K_retries < max_K_retries:
-                    K_current += 2
-                    K_retries += 1
-                else:
-                    break
-            
-            if best_weights is None:
-                raise RuntimeError("operator sign error")
-            else:
-                weights_grad_n = best_weights
-                stencil_ids = best_stencil_ids
-        else:
-            _, stencil_ids = tree_interior.query(manifold.points[b_id], K_grad-1)
+        best_ratio = -1.0
+        best_weights = None
+        best_stencil_ids = None
+        while True:
+            _, stencil_ids = tree_interior.query(manifold.points[b_id], K_current-1)
 
             # append boundary point
             stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
@@ -366,11 +260,45 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
                 kappa=kappa,
                 l=l_grad,
                 delta=delta,
-                weight_matrix=W
             ) # shape: (n, K)
 
             n_vec = n_vecs[i]
-            weights_grad_n = n_vec @ weights_grad
+            weights_grad_n = n_vec @ weights_grad # shape: (K,)
+
+            if K_current == K_grad:
+                initial_weights = weights_grad_n.copy()
+                initial_stencil_ids = stencil_ids.copy()
+
+            w_center = weights_grad_n[0]
+            w_neighbors = weights_grad_n[1:]
+            
+            is_positive = w_center > 0.0
+            
+            # ratio = |w_center| / max(|w_neighbors|)
+            ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+            
+            is_unstable = ratio < 3.0
+
+            if is_positive:
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_weights = weights_grad_n.copy()
+                    best_stencil_ids = stencil_ids.copy()
+
+            if is_positive and not is_unstable: # for gradient, we need positive
+                break
+
+            if K_retries < max_K_retries:
+                K_current += 2
+                K_retries += 1
+            else:
+                break
+        
+        if best_weights is None:
+            raise RuntimeError("gradient operator sign error")
+        else:
+            weights_grad_n = best_weights
+            stencil_ids = best_stencil_ids
 
         D_n[i, stencil_ids] = weights_grad_n
 
@@ -392,7 +320,6 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
     b_prime = f_I - A_IB @ (B_BB_inv @ g_B)
 
     u_num_interior = np.linalg.solve(A_prime, b_prime)
-    # u_num_interior = np.zeros(num_interior)
     u_num_boundary = B_BB_inv @ (g_B - B_BI @ u_num_interior)
 
     u_num = np.zeros(N)
@@ -401,38 +328,17 @@ def poisson_robin_semi_torus(N, K=25, l=4, kappa=3, delta=1e-5, l_grad=3, K_grad
 
     #-- VALIDATION --#
 
-    fe_pointwise = np.abs(L @ u_vals - u_lap_vals[id_interior]) # shape: (num_interior,)
-    ie_pointwise = np.abs(u_num - u_vals) # shape: (N,)
+    fe_interior = np.abs(L @ u_vals - u_lap_vals[id_interior])
+    fe_interior_l2 = np.sqrt(np.sum(fe_interior ** 2) / num_interior)
+    fe_interior_max = np.max(fe_interior)
 
-    # du/dn FE
-    fe_boundary_pointwise = np.abs(D_n @ u_vals - np.sum(n_vecs * u_grad_vals_boundary, axis=1))
+    fe_boundary = np.abs(D_n @ u_vals - np.sum(n_vecs * u_grad_vals_boundary, axis=1))
+    fe_boundary_l2 = np.sqrt(np.sum(fe_boundary ** 2) / num_boundary)
+    fe_boundary_max = np.max(fe_boundary)
 
-    if l2:
-        fe = np.sqrt(np.sum(fe_pointwise ** 2) / num_interior)
-        fe_boundary = np.sqrt(np.sum(fe_boundary_pointwise ** 2) / num_boundary)
-        ie = np.sqrt(np.sum(ie_pointwise ** 2) / N)
-    else:
-        fe = np.max(fe_pointwise)
-        fe_boundary = np.max(fe_boundary_pointwise)
-        ie = np.max(ie_pointwise)
+    ie = np.abs(u_num - u_vals) # shape: (N,)
+    ie_l2 = np.sqrt(np.sum(ie ** 2) / N)
+    ie_max = np.max(ie)
     # st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
 
-
-    if save:
-        data = {
-            'params': manifold.params,
-            'points': manifold.points,
-            'u_num': u_num,
-            'fe': fe_pointwise,
-            'ie': ie_pointwise,
-            'fe_bd': fe_boundary_pointwise
-        }
-
-        now = datetime.datetime.now()
-        formatted_time = now.strftime('%m%d_%H%M%S')
-
-        filename = f"N{N}_l_grad{l_grad}reg_{delta}_qp_l2_seed{seed}"
-        with open(f'./results/poisson_robin_semi_torus/{filename}.pkl', 'wb') as f:
-            pickle.dump(data, f)
-
-    return fe, ie
+    return fe_interior, fe_boundary, ie
