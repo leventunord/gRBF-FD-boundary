@@ -1,8 +1,7 @@
 from src import *
 from scipy.spatial import cKDTree
-from types import SimpleNamespace
 
-def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None, locals=False):
+def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
     #-- PARAMETERS --#
 
     kappa = 3
@@ -235,7 +234,7 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None, 
                     break
 
             if best_weights is None:
-                raise RuntimeError("operator sign error")
+                raise RuntimeError("lb operator sign error")
             else:
                 weights_lap = best_weights
                 stencil_ids = best_stencil_ids
@@ -303,7 +302,7 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None, 
                 break
         
         if best_weights is None:
-            raise RuntimeError("operator sign error")
+            raise RuntimeError("gradient operator sign error")
         else:
             weights_grad_n = best_weights
             stencil_ids = best_stencil_ids
@@ -328,7 +327,6 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None, 
     b_prime = f_I - A_IB @ (B_BB_inv @ g_B)
 
     u_num_interior = np.linalg.solve(A_prime, b_prime)
-    # u_num_interior = np.zeros(num_interior)
     u_num_boundary = B_BB_inv @ (g_B - B_BI @ u_num_interior)
 
     u_num = np.zeros(N)
@@ -350,7 +348,4 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None, 
     ie_max = np.max(ie)
     # st = np.linalg.norm(np.linalg.inv(A_prime), ord=np.inf)
 
-    if locals:
-        SimpleNamespace(**locals())
-    else:
-        return fe_interior, fe_boundary, ie
+    return fe_interior, fe_boundary, ie
