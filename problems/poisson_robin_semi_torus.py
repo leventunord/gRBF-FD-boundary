@@ -91,9 +91,6 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
     # outward normal at each boundary point
     n_vecs = np.zeros((num_boundary, manifold.n)) # shape: (num_boundary, n)
 
-    n_vec_left =  manifold.get_local_basis([0, phi_min])[0][1]
-    n_vec_right = manifold.get_local_basis([0, phi_max])[0][1]
-
     for i in range(num_boundary):
         n_vecs[i, :] = [0.0, -1.0, 0.0]
 
@@ -104,7 +101,6 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
     L = np.zeros((num_interior, N))
     tree_full = cKDTree(manifold.points)
 
-    bad_count = 0
     for i, i_id in enumerate(id_interior):
         K_current = K
         max_K_retries = 15

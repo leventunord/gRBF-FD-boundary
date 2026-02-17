@@ -1,7 +1,6 @@
 from itertools import combinations_with_replacement
 import numpy as np
 from cvxopt import matrix, solvers
-import cvxopt
 
 solvers.options['show_progress'] = False
 
