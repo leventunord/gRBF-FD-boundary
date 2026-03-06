@@ -1,7 +1,7 @@
 from src import *
 from scipy.spatial import cKDTree
 
-def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
+def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None, better_stencil=False, better_qp=False):
     #-- PARAMETERS --#
 
     kappa = 3
@@ -174,7 +174,10 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
         if is_positive or is_unstable:
             # qp processing
             K_current = K # fixed to initial K
-            max_K_retries = 15
+            if better_qp:
+                max_K_retries = 30
+            else:
+                max_K_retries = 15
 
             K_retries = 0
 
@@ -185,15 +188,26 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
             while True:
                 _, stencil_ids = tree_full.query(manifold.points[i_id], K_current)
 
-                weights_lap = get_operator_weights(
-                    stencil=manifold.points[stencil_ids],
-                    tangent_basis=manifold.get_local_basis(manifold.params[i])[0],
-                    operator='lap',
-                    kappa=kappa,
-                    l=l,
-                    delta=delta,
-                    qp=True
-                )
+                if better_qp:
+                    weights_lap = get_operator_weights_v4(
+                        stencil=manifold.points[stencil_ids],
+                        tangent_basis=manifold.get_local_basis(manifold.params[i_id])[0],
+                        operator='lap',
+                        kappa=kappa,
+                        l=l,
+                        delta=delta,
+                        qp=True
+                    )
+                else:
+                    weights_lap = get_operator_weights(
+                        stencil=manifold.points[stencil_ids],
+                        tangent_basis=manifold.get_local_basis(manifold.params[i_id])[0],
+                        operator='lap',
+                        kappa=kappa,
+                        l=l,
+                        delta=delta,
+                        qp=True
+                    )
 
                 if weights_lap is not None:
                     # detecting bad weights
@@ -235,7 +249,7 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
 
     for i, b_id in enumerate(id_boundary):
         K_current = K_grad
-        max_K_retries = 15
+        max_K_retries = 20
 
         K_retries = 0
 
@@ -243,11 +257,16 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
         best_weights = None
         best_stencil_ids = None
         while True:
-            _, stencil_ids = tree_interior.query(manifold.points[b_id], K_current-1)
+            if better_stencil:
+                _, interior_ids = tree_interior.query(manifold.points[b_id], K_current-1)
+                stencil_ids = id_interior[interior_ids] # project to global ids
 
-            # append boundary point
-            stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
-            stencil_ids = np.append(b_id, stencil_ids)
+                # append boundary point
+                stencil_points = np.vstack((manifold.points[b_id], manifold.points[stencil_ids]))
+                stencil_ids = np.append(b_id, stencil_ids)
+            else:
+                _, stencil_ids = tree_full.query(manifold.points[b_id], K_current)
+                stencil_points = manifold.points[stencil_ids]
 
             weights_grad = get_operator_weights(
                 stencil=stencil_points,
@@ -316,6 +335,7 @@ def poisson_robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=20, seed=None):
     b_prime = f_I - A_IB @ (B_BB_inv @ g_B)
 
     u_num_interior = np.linalg.solve(A_prime, b_prime)
+    # u_num_interior = np.zeros(num_interior)
     u_num_boundary = B_BB_inv @ (g_B - B_BI @ u_num_interior)
 
     u_num = np.zeros(N)

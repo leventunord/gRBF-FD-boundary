@@ -138,7 +138,7 @@ Let $\Omega$ denote the set of all $N$ node indices. We partition these indices 
 
 The global system vectors and matrices are partitioned accordingly:
 
-$$\mathbf{A} = \begin{bmatrix} \mathbf{A}_{\mathcal{II}} & \mathbf{A}_{\mathcal{IB}} \\ \mathbf{A}_{\mathcal{BI}} & \mathbf{A}_{\mathcal{BB}} \end{bmatrix}, \quad \mathbf{u} = \begin{bmatrix} \mathbf{u}_{\mathcal{I}} \\ \mathbf{u}_{\mathcal{B}} \end{bmatrix}, \quad \mathbf{f} = \begin{bmatrix} \mathbf{f}_{\mathcal{I}} \\ \mathbf{f}_{\mathcal{B}} \end{bmatrix}$$
+$$\mathbf{A} = \begin{bmatrix} \mathbf{A}_{\mathcal{II}} & \mathbf{A}_{\mathcal{IB}} \\  \end{bmatrix}, \quad \mathbf{u} = \begin{bmatrix} \mathbf{u}_{\mathcal{I}} \\ \mathbf{u}_{\mathcal{B}} \end{bmatrix}, \quad \mathbf{f} = \begin{bmatrix} \mathbf{f}_{\mathcal{I}} \end{bmatrix}$$
 
 For Robin conditions, the boundary values depend on both the function value and its normal derivative. We impose the condition:
 
