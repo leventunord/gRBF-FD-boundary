@@ -7,7 +7,8 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import multiprocessing as mp
 import time
-from problems import * 
+import numpy as np
+from problems.robin_semi_torus import robin_semi_torus
 
 def run_experiment(args):
     i, N, j, seed, l_index, l_grad, K_grad = args
@@ -23,7 +24,7 @@ if __name__ == '__main__':
     N_vals = [1600, 3200, 6400, 12800, 25600, 51200]
     l_grad_vals = [2, 3, 4, 5]
     K_grad_vals = [20, 25, 30, 35]
-    seeds = np.arange(12)[4:]
+    seeds = np.arange(12)
 
     results = np.zeros((len(N_vals), len(seeds), len(l_grad_vals), 3))
 

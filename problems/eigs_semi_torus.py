@@ -1,6 +1,6 @@
 from src import *
 import scipy.sparse as sparse
-import scipy.sparse.linalg as splinalg
+from scipy.sparse.linalg import eigs
 
 def generate_semi_torus(N, R=2.0, r=1.0):
     theta, phi = sp.symbols('theta phi', real=True)
@@ -92,7 +92,7 @@ def compute_mms_torus(manifold, n_vecs):
 
     return u_vals, f_vals, u_lap_vals, u_grad_vals, g_vals
 
-def solve_poisson_robin_schur(L, D_n, f, g, id_interior, id_boundary, N, require_st=False):
+def get_eigs(num_eigs, L, D_n, f, g, id_interior, id_boundary, N):
     """
     system:
     [ A_II   A_IB ] [ u_I ] = [ f_I ]
@@ -121,19 +121,15 @@ def solve_poisson_robin_schur(L, D_n, f, g, id_interior, id_boundary, N, require
     A_prime = A_II - A_IB @ B_BB_inv @ B_BI
     b_prime = f_I - A_IB @ (B_BB_inv @ g_B)
 
-    u_num_interior = splinalg.spsolve(A_prime, b_prime)
+    evals, evecs = eigs(A_prime.tocsc(), k=num_eigs, sigma=0, which='LM')
 
-    u_num_boundary = B_BB_inv @ (g_B - B_BI @ u_num_interior)
+    idx = np.argsort(np.abs(evals))
+    evals = np.real(evals[idx])
+    evecs = evecs[idx]
 
-    u_num = np.zeros(N)
-    u_num[id_interior] = u_num_interior
-    u_num[id_boundary] = u_num_boundary
+    return evals, evecs
 
-    if require_st:
-        return u_num, np.linalg.norm(np.linalg.inv(A_prime.toarray()), ord=np.inf)
-    return u_num
-
-def robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=25, lap_opt='qp', dn_opt='qp', seed=None):
+def eigs_semi_torus(N=6400, l=4, K=25, l_grad=4, K_grad=30, num_eigs=20, lap_opt='qp', dn_opt='qp', seed=None):
     #-- PARAMETERS --#
     kappa = 3
     delta = 1e-5
@@ -203,24 +199,20 @@ def robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=25, lap_opt='qp', dn_op
         
         D_n[b_id, stencil_ids] = weights_grad_n
     
-    u_num = solve_poisson_robin_schur(L, D_n, f_vals, g_vals, id_interior, id_boundary, N)
+    evals, evecs = get_eigs(num_eigs, L, D_n, f_vals, g_vals, id_interior, id_boundary, N)
 
-    #-- VALIDATION --#
-
-    fe_interior = np.abs(L[id_interior, :].dot(u_vals) - u_lap_vals[id_interior])
-    fe_interior_l2 = np.sqrt(np.sum(fe_interior ** 2) / num_interior)
-    # fe_interior_max = np.max(fe_interior)
-
-    fe_boundary = np.abs(D_n[id_boundary, :].dot(u_vals) - np.sum(n_vecs[id_boundary] * u_grad_vals[id_boundary], axis=1))
-    fe_boundary_l2 = np.sqrt(np.sum(fe_boundary ** 2) / num_boundary)
-    # fe_boundary_max = np.max(fe_boundary)
-
-    ie = np.abs(u_num - u_vals) # shape: (N,)
-    ie_l2 = np.sqrt(np.sum(ie ** 2) / N)
-    # ie_max = np.max(ie)
-
-    return fe_interior_l2, fe_boundary_l2, ie_l2
+    return evals, evecs
 
 if __name__ == "__main__":
-    fe_interior_l2, fe_boundary_l2, ie_l2 = robin_semi_torus()
-    print(f"FE_IN: {fe_interior_l2:.3e} FE_BD: {fe_boundary_l2:.3e} IE: {ie_l2:.3e}")
+    num_eigs = 20
+    num_seeds = 4
+
+    evals_arr = np.zeros((num_seeds, num_eigs))
+    for seed in np.arange(num_seeds):
+        evals, _ = eigs_semi_torus(N=102400, seed=seed)
+        evals_arr[seed, :] = evals
+
+    mean = np.mean(evals_arr, axis=0)
+    print(mean)
+
+    np.save('./data/eigs_semi_torus_gt.npy', evals)
