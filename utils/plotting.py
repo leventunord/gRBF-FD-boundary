@@ -2,27 +2,45 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 
-def plot_convergence(N_vals, err_stat_list, title=None, ref_list=None, filename=None):
+def plot_convergence(N_vals, err_stat_list, log_normal=False, title=None, ref_list=None, filename=None):
     N_vals = np.array(N_vals)
 
     fig, ax = plt.subplots(figsize=(9, 8))
 
     for stat in err_stat_list:
-        mean = stat['mean']
-        std = stat['std']
+        if log_normal:
+            log_mean = stat['mean']
+            log_std = stat['std']
 
-        line, = plt.loglog(N_vals, mean, marker='o', **stat['plot_kwargs'])
-        
-        color = line.get_color()
-        
-        plt.fill_between(
-            N_vals, 
-            mean - std, 
-            mean + std, 
-            color=color, 
-            alpha=0.2,
-            edgecolor=None
-        )
+            line, = plt.loglog(N_vals, 10 ** log_mean, marker='o', **stat['plot_kwargs'])
+            
+            color = line.get_color()
+            
+            plt.fill_between(
+                N_vals, 
+                10 ** (log_mean - log_std), 
+                10 ** (log_mean + log_std), 
+                color=color, 
+                alpha=0.2,
+                edgecolor=None
+            )
+
+        else:
+            mean = stat['mean']
+            std = stat['std']
+
+            line, = plt.loglog(N_vals, mean, marker='o', **stat['plot_kwargs'])
+            
+            color = line.get_color()
+            
+            plt.fill_between(
+                N_vals, 
+                mean - std, 
+                mean + std, 
+                color=color, 
+                alpha=0.2,
+                edgecolor=None
+            )
 
     ax.set_xscale('log')
     ax.set_yscale('log')
@@ -63,61 +81,6 @@ def plot_convergence(N_vals, err_stat_list, title=None, ref_list=None, filename=
 
     plt.show()
 
-
-def plot_error_distribution(params, error_vals, filename='temp'):
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    sc = ax.scatter(
-        params[:, 0], params[:, 1], c=error_vals,
-        s=100,
-        cmap='viridis', 
-        norm=LogNorm(),
-        marker='o',
-        edgecolors='none',
-        alpha=0.8
-    )
-
-    # find the point with maximum error
-    max_id = np.argmax(error_vals)
-    ax.scatter(params[max_id][0], params[max_id][1], s=100, facecolors='none', edgecolors='red', linewidth=2)
-
-    max_err_text = f"{error_vals[max_id]:.3e}"
-
-    ax.annotate(
-        max_err_text, 
-        xy=(params[max_id][0], params[max_id][1]),
-        xytext=(0, -20),
-        textcoords='offset points',
-        ha='center',
-        va='bottom',
-        color='red',
-        fontsize=10,
-        fontweight='bold'
-    )
-
-    cbar = plt.colorbar(sc, ax=ax)
-    cbar.set_label('Absolute Inverse Error', rotation=270, labelpad=20)
-
-    ax.set_xlim(0.0, 2*np.pi)
-    ax.set_ylim(0.0, np.pi)
-
-    ax.set_yticks([0, np.pi/2, np.pi])
-    ax.set_yticklabels([r'$0$', r'$\pi/2$', r'$\pi$'])
-    ax.set_xticks([0, np.pi/2, np.pi, 3 * np.pi/2, 2*np.pi])
-    ax.set_xticklabels([r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$'])
-    
-    ax.set_xlabel(r'$\theta$')
-    ax.set_ylabel(r'$\phi$', rotation=0)
-    ax.grid(True, linestyle='--', alpha=0.3, color='gray')
-    ax.set_aspect('equal')
-
-    ax.minorticks_off()
-
-    plt.title(r"IE (fixed) K=50 N=6400 with QP")
-
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
-    plt.show()
-
 def plot_point_cloud(points, id_list, filename=None):
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
@@ -130,4 +93,108 @@ def plot_point_cloud(points, id_list, filename=None):
     if filename is not None:
             fig.savefig(f'./static/{filename}.pdf', dpi=300, bbox_inches='tight')
 
+    plt.show()
+
+def plot_weights(weights, filename=None):
+    fig, ax = plt.subplots(figsize=(7, 5))
+    
+    ids = np.arange(len(weights))
+    bars = ax.bar(ids, weights)
+    bars[0].set_color('red')
+
+    ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
+    
+    ax.set_xlabel(r'$k$ nearest neighbor')
+    ax.set_ylabel(r'coefficient $w_k$')
+    plt.tight_layout()
+
+    if filename is not None:
+        fig.savefig(f'../static/{filename}.pdf', dpi=300, bbox_inches='tight')
+
+    plt.show()
+
+def plot_error_distribution(params, error_vals, filename=None):
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    sc = ax.scatter(
+        params[:, 0], params[:, 1], c=error_vals,
+        s=100,
+        cmap='coolwarm', 
+        norm=LogNorm(),
+        marker='o',
+        edgecolors='none',
+        alpha=0.8
+    )
+
+    cbar = plt.colorbar(sc, ax=ax)
+    # cbar.set_label('Forward Error', rotation=270, labelpad=20)
+
+    ax.set_xlim(0.0, 2*np.pi)
+    ax.set_ylim(0.0, np.pi)
+
+    ax.set_yticks([0, np.pi/2, np.pi])
+    ax.set_yticklabels([r'$0$', r'$\pi/2$', r'$\pi$'])
+    ax.set_xticks([0, np.pi/2, np.pi, 3 * np.pi/2, 2*np.pi])
+    ax.set_xticklabels([r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$'])
+    
+    ax.set_xlabel(r'$\psi^1$')
+    ax.set_ylabel(r'$\psi^2$', rotation=0)
+    ax.grid(True, linestyle='--', alpha=0.3, color='gray')
+    # ax.set_aspect('equal')
+
+    ax.minorticks_off()
+
+    if filename is not None:
+        fig.savefig(f'../static/{filename}.pdf', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_bad_points(params, pos_idx, ill_idx, filename=None):
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    pos_points = params[pos_idx]
+    ill_points = params[ill_idx]
+    
+    ax.scatter(
+        params[:, 0], params[:, 1],
+        s=20,
+        c='green',
+        marker='o',
+        edgecolors='none',
+        alpha=0.1,
+        label=r'$w_1 < 0 $ and $\gamma \geq 1$'
+    )
+
+    ax.scatter(pos_points[:, 0], pos_points[:, 1], label=r'$w_1 \geq 0$',
+               c='red', marker='x', s=120, alpha=1.0, zorder=5)
+    
+
+    ax.scatter(ill_points[:, 0], ill_points[:, 1], label=r'$\gamma < 1$',
+               edgecolors='blue', marker='o', s=60, alpha=0.9, facecolors='none',
+              zorder=5)
+    
+    ax.set_xlim(0.0, 2*np.pi)
+    ax.set_ylim(0.0, np.pi)
+
+    ax.set_xlabel(r'$\psi^1$')
+    ax.set_ylabel(r'$\psi^2$', rotation=0)
+
+    ax.set_yticks([0, np.pi/2, np.pi])
+    ax.set_yticklabels([r'$0$', r'$\pi/2$', r'$\pi$'])
+    ax.set_xticks([0, np.pi/2, np.pi, 3 * np.pi/2, 2*np.pi])
+    ax.set_xticklabels([r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$'])
+
+    leg = ax.legend()
+    for lh in leg.legend_handles: 
+        lh.set_alpha(1.0)
+
+    ax.grid(True, linestyle='--', alpha=0.3, color='gray')
+    plt.tight_layout()
+    if filename is not None:
+        fig.savefig(f'../static/{filename}.pdf', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_k_vals(k_vals):
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    ax.plot(k_vals, marker='o', ms=3, linestyle='--', label='Trend', alpha=0.5)
     plt.show()

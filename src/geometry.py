@@ -1,5 +1,6 @@
 import sympy as sp
 import numpy as np
+from scipy.spatial import cKDTree
 
 class Manifold:
     def __init__(self, xi_syms, x_syms):
@@ -13,6 +14,9 @@ class Manifold:
 
         self.xi = sp.Matrix(xi_syms) # shape: (d,)
         self.x = sp.Matrix(x_syms) # shape: (n, )
+
+        self.id_interior = None
+        self.id_boundary = None
 
     def compute(self):
         self.J = self.x.jacobian(self.xi)
@@ -67,3 +71,34 @@ class Manifold:
         
         self.params = params # shape: (num_points, d)
         self.points = np.column_stack(coords_broadcasted) # shape: (num_points, n)
+
+    def build_tree(self):
+        self.tree = cKDTree(self.points)
+
+    def build_enhanced_tree(self, center_id, enhance_direction=None, s=3.0):
+        interior_points = self.points[self.id_interior]
+        e_vec = enhance_direction
+
+        diff = interior_points - self.points[center_id]
+        # s: enhance strength
+        proj_lengths = diff @ e_vec  
+        enhanced_diff = diff - (1.0 - 1/s) * np.outer(proj_lengths, e_vec)
+
+        return cKDTree(enhanced_diff)
+    
+    def get_in_stencil(self, center_id, K):
+        _, stencil_ids = self.tree.query(self.points[center_id], K)
+        return self.points[stencil_ids], stencil_ids
+
+    def get_bd_stencil(self, center_id, K, method='restricted', enhanced_tree=None):
+        if method == 'direct':
+            _, stencil_ids = self.tree.query(self.points[center_id], K)
+            return self.points[stencil_ids], stencil_ids
+        elif method == 'restricted':
+            _, interior_idx = enhanced_tree.query(np.zeros(3), k=K-1)
+
+            stencil_ids = np.zeros(K, dtype=int)
+            stencil_ids[0] = center_id
+            stencil_ids[1:] = self.id_interior[interior_idx]
+
+            return self.points[stencil_ids], stencil_ids
