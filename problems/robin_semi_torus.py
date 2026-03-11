@@ -53,10 +53,8 @@ def generate_semi_torus(N, R=2.0, r=1.0):
     id_boundary = np.arange(num_interior, N)
 
     # outward normal at each boundary point
-    n_vecs = np.zeros((num_boundary, manifold.n)) # shape: (num_boundary, n)
-
-    for i in range(num_boundary):
-        n_vecs[i, :] = [0.0, -1.0, 0.0]
+    n_vecs = np.zeros((N, manifold.n)) 
+    n_vecs[id_boundary] = [0.0, -1.0, 0.0]
 
     manifold.id_interior = id_interior
     manifold.id_boundary = id_boundary
@@ -88,17 +86,15 @@ def compute_mms_torus(manifold, n_vecs):
     pp = manifold.params[:, 1]
 
     u_vals = u_func(tt, pp)
-    f_I = f_func(tt, pp)[id_interior]
+    f_vals = f_func(tt, pp)
     u_lap_vals = u_lap_func(tt, pp)
 
-    u_grad_vals = u_grad_func(tt, pp) # shape: (n, 1, N)
-    u_grad_vals_boundary = u_grad_vals.squeeze()[:, id_boundary].T # shape: (num_boundary, n)
-    # g = u + du/dn
-    g_B = u_vals[id_boundary] + np.sum(n_vecs * u_grad_vals_boundary, axis=1) # shape: (num_boundary)
+    u_grad_vals = u_grad_func(tt, pp).squeeze().T # shape: (N, n)
+    g_vals = u_vals + np.sum(n_vecs * u_grad_vals, axis=1) # shape: (N,)
 
-    return u_vals, f_I, u_lap_vals, u_grad_vals_boundary, g_B
+    return u_vals, f_vals, u_lap_vals, u_grad_vals, g_vals
 
-def solve_poisson_robin_schur(L, D_n, f_I, g_B, id_interior, id_boundary, N, require_st=False):
+def solve_poisson_robin_schur(L, D_n, f, g, id_interior, id_boundary, N, require_st=False):
     """
     system:
     [ A_II   A_IB ] [ u_I ] = [ f_I ]
@@ -110,16 +106,19 @@ def solve_poisson_robin_schur(L, D_n, f_I, g_B, id_interior, id_boundary, N, req
     num_boundary = len(id_boundary)
 
     A = -L_csr
-    A_II = A[:, id_interior]
-    A_IB = A[:, id_boundary]
+    A_II = A[id_interior, :][:, id_interior]
+    A_IB = A[id_interior, :][:, id_boundary]
 
-    B_BI = D_n_csr[:, id_interior] 
+    B_BI = D_n_csr[id_boundary, :][:, id_interior] 
     
     I_B = sparse.eye(num_boundary, format='csr')
-    B_BB = D_n_csr[:, id_boundary] + I_B
+    B_BB = D_n_csr[id_boundary, :][:, id_boundary] + I_B
 
     B_BB_diag = B_BB.diagonal()
     B_BB_inv = sparse.diags(1.0 / B_BB_diag, format='csr')
+
+    f_I = f[id_interior]
+    g_B = g[id_boundary]
 
     A_prime = A_II - A_IB @ B_BB_inv @ B_BI
     b_prime = f_I - A_IB @ (B_BB_inv @ g_B)
@@ -153,13 +152,13 @@ def robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=25, lap_opt='qp', dn_op
 
     #-- MANUFACTURED SOLUTION --#
 
-    u_vals, f_I, u_lap_vals, u_grad_vals_boundary, g_B = compute_mms_torus(manifold, n_vecs)
+    u_vals, f_vals, u_lap_vals, u_grad_vals, g_vals = compute_mms_torus(manifold, n_vecs)
 
     #-- OPERATORS --#
 
-    L = sparse.lil_matrix((num_interior, N))
+    L = sparse.lil_matrix((N, N))
 
-    for i, i_id in enumerate(id_interior):
+    for i_id in id_interior:
         fetcher_in = lambda k: manifold.get_in_stencil(i_id, k)
         
         lap_kwargs = {
@@ -177,12 +176,12 @@ def robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=25, lap_opt='qp', dn_op
             gamma=3.0
         )
 
-        L[i, stencil_ids] = weights_lap
+        L[i_id, stencil_ids] = weights_lap
     
-    D_n = sparse.lil_matrix((num_boundary, N))
+    D_n = sparse.lil_matrix((N, N))
     
-    for i, b_id in enumerate(id_boundary):
-        n_vec = n_vecs[i]
+    for b_id in id_boundary:
+        n_vec = n_vecs[b_id]
         
         enhanced_tree = manifold.build_enhanced_tree(b_id, enhance_direction=-n_vec)
         
@@ -204,17 +203,17 @@ def robin_semi_torus(N=6400, l=4, K=25, l_grad=3, K_grad=25, lap_opt='qp', dn_op
             gamma=3.0
         )
         
-        D_n[i, stencil_ids] = weights_grad_n
+        D_n[b_id, stencil_ids] = weights_grad_n
     
-    u_num = solve_poisson_robin_schur(L, D_n, f_I, g_B, id_interior, id_boundary, N)
+    u_num = solve_poisson_robin_schur(L, D_n, f_vals, g_vals, id_interior, id_boundary, N)
 
     #-- VALIDATION --#
 
-    fe_interior = np.abs(L.dot(u_vals) - u_lap_vals[id_interior])
+    fe_interior = np.abs(L[id_interior, :].dot(u_vals) - u_lap_vals[id_interior])
     fe_interior_l2 = np.sqrt(np.sum(fe_interior ** 2) / num_interior)
     # fe_interior_max = np.max(fe_interior)
 
-    fe_boundary = np.abs(D_n.dot(u_vals) - np.sum(n_vecs * u_grad_vals_boundary, axis=1))
+    fe_boundary = np.abs(D_n[id_boundary, :].dot(u_vals) - np.sum(n_vecs[id_boundary] * u_grad_vals[id_boundary], axis=1))
     fe_boundary_l2 = np.sqrt(np.sum(fe_boundary ** 2) / num_boundary)
     # fe_boundary_max = np.max(fe_boundary)
 

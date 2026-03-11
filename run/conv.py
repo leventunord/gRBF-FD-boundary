@@ -12,8 +12,8 @@ from problems import *
 def run_experiment(args):
     i, N, j, seed, l_index, l_grad, K_grad = args
     try:
-        fe_in, fe_bd, ie = robin_semi_torus(N=N, l=5, K=30, l_grad=l_grad, K_grad=K_grad, seed=seed, lap_opt='qp', grad_opt='qp')
-        # print(f'[Done] N {N:5d} | seed {seed} | l {l_grad} | IE {ie:.3e}', flush=True)
+        fe_in, fe_bd, ie = robin_semi_torus(N=N, l=4, K=30, l_grad=l_grad, K_grad=K_grad, seed=seed)
+        print(f'[Done] N {N:5d} | seed {seed} | l {l_grad} | IE {ie:.3e}', flush=True)
         return (i, j, l_index, fe_in, fe_bd, ie)
     except Exception as e:
         print(f"[Error] N={N}, seed={seed}, l_grad={l_grad} failed: {e}", flush=True)
@@ -21,9 +21,9 @@ def run_experiment(args):
 
 if __name__ == '__main__':
     N_vals = [1600, 3200, 6400, 12800, 25600, 51200]
-    l_grad_vals = [3, 4, 5, 6]
-    K_grad_vals = [25, 30, 35, 40]
-    seeds = np.arange(12)
+    l_grad_vals = [2, 3, 4, 5]
+    K_grad_vals = [20, 25, 30, 35]
+    seeds = np.arange(12)[4:]
 
     results = np.zeros((len(N_vals), len(seeds), len(l_grad_vals), 3))
 
@@ -36,7 +36,7 @@ if __name__ == '__main__':
 
     tasks.sort(key=lambda x: x[1], reverse=True)
 
-    num_cores = min(mp.cpu_count(), 50) 
+    num_cores = min(mp.cpu_count(), 100) 
     
     start_time = time.time()
 
@@ -48,6 +48,6 @@ if __name__ == '__main__':
             results[i, j, l_index, 2] = ie
 
     end_time = time.time()
-    # print(f"All computations finished in {(end_time - start_time)/60:.2f} minutes.")
+    print(f"All computations finished in {(end_time - start_time)/60:.2f} minutes.")
 
-    np.save('./data/semi_torus_d5.npy', results)
+    np.save('./data/semi_torus_d4_mod.npy', results)

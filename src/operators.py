@@ -132,29 +132,49 @@ def get_operator_weights(
         A_eq = np.zeros((m, K + 1))
         A_eq[:, :K] = P.T
         
-        # inequaliy 
-        num_ineq = 2 * K + 1
-        A = np.zeros((num_ineq, K + 1))
-        b = np.zeros(num_ineq)
+        # # inequaliy 
+        if operator == 'lap':
+            num_ineq = K + 2
+            A = np.zeros((num_ineq, K + 1))
+            b = np.zeros(num_ineq)
 
-        # 1. w1 + 3C <= 0 (lap) OR -w1 + 3C <= 0 (dn)
-        A[0, 0] = 1.0 if operator == 'lap' else -1.0
-        A[0, -1] = 3.0
+            # 1. w1 + C <= 0 
+            A[0, 0] = 1.0
+            A[0, -1] = 1.0
 
-        # 2. -w_2:K - C <= 0 AND  w_2:K - C <= 0
-        idx = np.arange(1, K)
+            # 2. -w_2:K - C <= 0 
+            idx = np.arange(1, K)
 
-        A[idx, idx] = -1.0
-        A[idx, -1] = -1.0
+            A[idx, idx] = -1.0
+            A[idx, -1] = -1.0
 
-        A[idx + K - 1, idx] = 1.0
-        A[idx + K - 1, -1] = -1.0
+            # 3. -C <= 0  AND  C <= 1e5
+            A[K, -1] = -1.0
 
-        # 3. -C <= 0  AND  C <= 1e5
-        A[2 * K - 1, -1] = -1.0
+            A[K + 1, -1] = 1.0
+            b[K + 1] = 1e5
+        elif operator == 'dn':
+            num_ineq = 2 * K + 1
+            A = np.zeros((num_ineq, K + 1))
+            b = np.zeros(num_ineq)
 
-        A[2 * K, -1] = 1.0
-        b[2 * K] = 1e5
+            # 1.-w1 <= 0 (dn)
+            A[0, 0] = -1.0
+
+            # 2. -w_2:K - C <= 0 AND  w_2:K - C <= 0
+            idx = np.arange(1, K)
+
+            A[idx, idx] = -1.0
+            A[idx, -1] = -1.0
+
+            A[idx + K - 1, idx] = 1.0
+            A[idx + K - 1, -1] = -1.0
+
+            # 3. -C <= 0  AND  C <= 1e5
+            A[2 * K - 1, -1] = -1.0
+
+            A[2 * K, -1] = 1.0
+            b[2 * K] = 1e5   
                 
         sol = solvers.qp(matrix(H), matrix(f), matrix(A), matrix(b), matrix(A_eq), matrix(b_eq))
         if sol['status'] != 'optimal':
@@ -188,22 +208,17 @@ def get_operator_weights(
     weights = (w_poly + w_rbf) / scale_factor
     return weights.flatten()
 
-def get_stable_weights(stencil_fetcher, weight_kwargs, K_init, expected_sign, opt, gamma=3.0, max_retries_opt=40):
-    # TODO
+def get_stable_weights(stencil_fetcher, weight_kwargs, K_init, expected_sign, opt, gamma=3.0, max_retries_opt=20):
     K_current = K_init
     max_retries_auto_K = 15
 
     # auto K
 
-    w1_min = 1.0 # for laplacian
     for _ in range(max_retries_auto_K + 1):
         stencil_points, stencil_ids = stencil_fetcher(K_current)
         weights = get_operator_weights(stencil=stencil_points, **weight_kwargs)
         
         w_center, w_neighbors = weights[0], weights[1:]
-
-        if w_center < w1_min:
-            w1_min = w_center
         
         is_correct_sign = (w_center * expected_sign) > 0.0
         ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
@@ -215,17 +230,37 @@ def get_stable_weights(stencil_fetcher, weight_kwargs, K_init, expected_sign, op
         K_current += 2
 
     # opt
-    K_current = K_init 
+    K_current = K_init + 5
     opt_kwargs = weight_kwargs.copy()
     opt_kwargs['opt'] = opt
+
+    # best of history
+    best_ratio = -1.0
+    best_weights = None
+    best_stencil_ids = None
     
     for _ in range(max_retries_opt + 1):
         stencil_points, stencil_ids = stencil_fetcher(K_current)
         weights = get_operator_weights(stencil=stencil_points, **opt_kwargs)
 
         if weights is not None:
-            return weights, stencil_ids
+            w_center, w_neighbors = weights[0], weights[1:]
+            ratio = np.abs(w_center) / np.max(np.abs(w_neighbors))
+            
+            is_correct_sign = (w_center * expected_sign) > 0.0
+            is_stable = ratio >= gamma
+
+            if is_correct_sign:
+                if is_stable:
+                    return weights, stencil_ids
+                elif ratio > best_ratio:
+                    best_ratio = ratio
+                    best_weights = weights
+                    best_stencil_ids = stencil_ids
         
         K_current += 2
 
-    raise RuntimeError(f"Operator {weight_kwargs.get('operator')} not optimal.")
+    if best_weights is not None:
+        return best_weights, best_stencil_ids
+    else:
+        raise RuntimeError(f"Operator {weight_kwargs.get('operator')} not optimal.")
