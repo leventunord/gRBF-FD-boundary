@@ -9,19 +9,21 @@ import multiprocessing as mp
 import time
 import numpy as np
 from problems.eigs_semi_torus import eigs_semi_torus
+from problems.eigs_semi_sphere import eigs_semi_sphere
 
 def run_experiment(args):
     i, N, j, seed, num_eigs = args
     try:
-        evals, evecs = eigs_semi_torus(N=N, l=4, K=30, l_grad=4, K_grad=30, num_eigs=num_eigs, seed=seed)
+        evals, evecs = eigs_semi_sphere(N=N, l=4, K=30, l_grad=4, K_grad=30, num_eigs=num_eigs, seed=seed)
+        print(f"[Done] N={N}, seed={seed}", flush=True)
         return (i, j, evals)
     except Exception as e:
         print(f"[Error] N={N}, seed={seed}, failed: {e}", flush=True)
         return (i, j, np.nan)
 
 if __name__ == '__main__':
-    N_vals = [1600, 3200, 6400, 12800, 25600, 51200, 102400]
-    seeds = np.arange(4)
+    N_vals = [1600, 3200, 6400, 12800, 25600, 51200]
+    seeds = np.arange(12)
 
     num_eigs = 20
 
@@ -34,7 +36,7 @@ if __name__ == '__main__':
 
     tasks.sort(key=lambda x: x[1], reverse=True)
 
-    num_cores = min(mp.cpu_count(), 100) 
+    num_cores = min(mp.cpu_count(), 60) 
     
     start_time = time.time()
 
@@ -46,4 +48,4 @@ if __name__ == '__main__':
     end_time = time.time()
     print(f"All computations finished in {(end_time - start_time)/60:.2f} minutes.")
 
-    np.save('./data/eigs_semi_torus_d4.npy', results)
+    np.save('./data/eigs_semi_sphere_d4.npy', results)

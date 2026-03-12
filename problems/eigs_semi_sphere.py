@@ -2,59 +2,48 @@ from src import *
 import scipy.sparse as sparse
 from scipy.sparse.linalg import eigs
 
-def generate_semi_torus(N, R=2.0, r=1.0):
+def generate_semi_sphere(N, R=1.0):
     theta, phi = sp.symbols('theta phi', real=True)
 
-    x_sym = (R + r * sp.cos(theta)) * sp.cos(phi)
-    y_sym = (R + r * sp.cos(theta)) * sp.sin(phi)
-    z_sym = r * sp.sin(theta)
+    x_sym = R * sp.sin(theta) * sp.cos(phi)
+    y_sym = R * sp.sin(theta) * sp.sin(phi)
+    z_sym = R * sp.cos(theta)
 
     manifold = Manifold([theta, phi], [x_sym, y_sym, z_sym])
     manifold.compute()
 
-    theta_range = (0, 2*np.pi)
-    phi_range = (0, np.pi)
+    theta_range = (0, np.pi/2)
+    phi_range = (0, 2*np.pi)
 
-    phi_min = phi_range[0]
-    phi_max = phi_range[1]
+    theta_max = theta_range[1]
 
-    num_boundary = 2 * int(np.round(np.sqrt(2*r/R)*np.sqrt(N)))
+    num_boundary = int(np.round(np.sqrt(2 * np.pi * N)))
     num_interior = N - num_boundary
 
     manifold.sample([theta_range, phi_range], num_interior)
 
-    # sample boundary
+    x_sym_bdry = R * sp.cos(phi)
+    y_sym_bdry = R * sp.sin(phi)
+    z_sym_bdry = sp.S(0)
 
-    x_sym_left = (R + r * sp.cos(theta)) * sp.cos(phi_min)
-    y_sym_left = (R + r * sp.cos(theta)) * sp.sin(phi_min)
-
-    boundary_left = Manifold([theta], [x_sym_left, y_sym_left, z_sym])
-    boundary_left.sample([theta_range], num_boundary // 2)
-
-    x_sym_right = (R + r * sp.cos(theta)) * sp.cos(phi_max)
-    y_sym_right = (R + r * sp.cos(theta)) * sp.sin(phi_max)
-
-    boundary_right = Manifold([theta], [x_sym_right, y_sym_right, z_sym])
-    boundary_right.sample([theta_range], num_boundary // 2)
+    boundary = Manifold([phi], [x_sym_bdry, y_sym_bdry, z_sym_bdry])
+    boundary.sample([phi_range], num_boundary)
 
     manifold.params = np.vstack([
         manifold.params,
-        np.insert(boundary_left.params, 1, values=phi_min, axis=1),
-        np.insert(boundary_right.params, 1, values=phi_max, axis=1)
+        np.insert(boundary.params, 0, values=theta_max, axis=1)
     ])
 
     manifold.points = np.vstack([
         manifold.points,
-        boundary_left.points,
-        boundary_right.points
+        boundary.points
     ])
 
     id_interior = np.arange(num_interior)
     id_boundary = np.arange(num_interior, N)
 
-    # outward normal at each boundary point
     n_vecs = np.zeros((N, manifold.n)) 
-    n_vecs[id_boundary] = [0.0, -1.0, 0.0]
+    n_vecs[id_boundary] = [0.0, 0.0, -1.0]
 
     manifold.id_interior = id_interior
     manifold.id_boundary = id_boundary
@@ -96,7 +85,7 @@ def get_eigs(num_eigs, L, D_n, id_interior, id_boundary):
 
     return evals, evecs
 
-def eigs_semi_torus(N=6400, l=4, K=25, l_grad=4, K_grad=30, num_eigs=20, lap_opt='qp', dn_opt='qp', seed=None):
+def eigs_semi_sphere(N=6400, l=4, K=25, l_grad=4, K_grad=30, num_eigs=20, lap_opt='qp', dn_opt='qp', seed=None):
     #-- PARAMETERS --#
     kappa = 3
     delta = 1e-5
@@ -105,11 +94,9 @@ def eigs_semi_torus(N=6400, l=4, K=25, l_grad=4, K_grad=30, num_eigs=20, lap_opt
         np.random.seed(seed)
 
     #-- GEOMETRY --#
-
-    manifold, id_interior, id_boundary, n_vecs = generate_semi_torus(N)
+    manifold, id_interior, id_boundary, n_vecs = generate_semi_sphere(N)
 
     #-- OPERATORS --#
-
     L = sparse.lil_matrix((N, N))
 
     for i_id in id_interior:
@@ -164,5 +151,5 @@ def eigs_semi_torus(N=6400, l=4, K=25, l_grad=4, K_grad=30, num_eigs=20, lap_opt
     return evals, evecs
 
 if __name__ == "__main__":
-    evals, evecs = eigs_semi_torus()
+    evals, evecs = eigs_semi_sphere()
     print(evals)
